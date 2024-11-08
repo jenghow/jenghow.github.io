@@ -1,3 +1,4 @@
+<script type="text/javascript">
 // Initialize PDF.js
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
@@ -72,7 +73,7 @@ function onNextPage() {
     pageNum++;
     queueRenderPage(pageNum);
 }
-
+</script>
 // HTML structure needed:
 /*
 <div>
@@ -81,7 +82,7 @@ function onNextPage() {
     <span>Page: <span id="page-num"></span> / <span id="page-count"></span></span>
 </div>
 <canvas id="pdf-canvas"></canvas>
-*/
 
-// Load your PDF
+<script type="text/javascript">
 loadPDF('TNB.pdf');
+</script>
