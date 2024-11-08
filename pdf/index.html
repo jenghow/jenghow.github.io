@@ -8,6 +8,7 @@ let pdfDoc = null;
 let pageNum = 1;
 let pageRendering = false;
 let pageNumPending = null;
+let url="https://jenghow.github.io/pdf/TNB.pdf";
 const scale = 1.5;
 const canvas = document.getElementById('pdf-canvas');
 const ctx = canvas.getContext('2d');
@@ -86,5 +87,5 @@ function onNextPage() {
 <canvas id="pdf-canvas"></canvas>
 
 <script type="text/javascript">
-loadPDF('TNB.pdf');
+
 </script>
