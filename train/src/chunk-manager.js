@@ -19,6 +19,10 @@ export class ChunkManager {
     this.lastCz = null;
   }
 
+  setSnow(amount) {
+    for (const chunk of this.chunks.values()) chunk.setSnow(amount);
+  }
+
   update(trainPos) {
     const cx = Math.floor(trainPos.x / CHUNK_SIZE);
     const cz = Math.floor(trainPos.z / CHUNK_SIZE);

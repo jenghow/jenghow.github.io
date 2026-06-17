@@ -147,6 +147,7 @@ export class TerrainChunk {
     this.mesh = new THREE.Mesh(nonIndexed, mat);
     this.mesh.position.set(wx + CHUNK_SIZE / 2, 0, wz + CHUNK_SIZE / 2);
     this.mesh.receiveShadow = true;
+    this._baseColors = new Float32Array(this.mesh.geometry.attributes.color.array);
 
     if (needsBridge) {
       this._buildBridge(wx + CHUNK_SIZE / 2, wz + CHUNK_SIZE / 2, track, bridgeY);
@@ -174,6 +175,15 @@ export class TerrainChunk {
       pier.receiveShadow = true;
       this.bridgeGroup.add(pier);
     }
+  }
+
+  setSnow(amount) {
+    if (!this._baseColors || !this.mesh) return;
+    const colors = this.mesh.geometry.attributes.color.array;
+    for (let i = 0; i < colors.length; i++) {
+      colors[i] = this._baseColors[i] + (1 - this._baseColors[i]) * amount;
+    }
+    this.mesh.geometry.attributes.color.needsUpdate = true;
   }
 
   dispose(scene) {

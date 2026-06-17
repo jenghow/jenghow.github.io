@@ -6,6 +6,7 @@ import { Train } from './train.js';
 import { ChunkManager } from './chunk-manager.js';
 import { WATER_LEVEL } from './terrain.js';
 import { MidiPlayer } from './midi-player.js';
+import { Birds } from './birds.js';
 
 const CYCLE_SEC = 40;
 const WEATHER_SEC = 35;
@@ -99,6 +100,7 @@ function init() {
   scene.add(water);
 
   const chunkManager = new ChunkManager(scene, noise, track);
+  const birds = new Birds(scene);
 
   chunkManager.update(train.getPosition());
 
@@ -151,15 +153,16 @@ function init() {
     // Auto speed: sinusoidal 3-8 m/s (~11-29 km/h)
     train.speed = 5.5 + 2.5 * Math.sin(elapsed * 0.22);
 
-    // Day/night cycle (40s period)
+    // Day/night cycle (40s period) — 4 phases: 0=morning, 1=day, 2=evening, 3=night
     const dayNorm = ((elapsed % CYCLE_SEC) / CYCLE_SEC) * Math.PI * 2;
     const dayAmount = (Math.sin(dayNorm) + 1) / 2;
+    const phase = Math.floor(((elapsed % CYCLE_SEC) / CYCLE_SEC) * 4);
 
     // Weather: 4 states × (35s stable + 5s crossfade) = 160s full cycle
     const wt = elapsed % (WEATHER_TOTAL * 4);
     const seg = Math.floor(wt / WEATHER_TOTAL);
     const segT = wt % WEATHER_TOTAL;
-    const wA = seg % 4;
+    let wA = seg % 4;
     let wB, blend;
     if (segT < WEATHER_SEC) {
       wB = wA;
@@ -169,10 +172,17 @@ function init() {
       blend = (segT - WEATHER_SEC) / CROSSFADE_SEC;
     }
 
+    // Foggy weather (state 2) only during morning (0) or night (3)
+    const foggyAllowed = phase === 0 || phase === 3;
+    if (!foggyAllowed) {
+      if (wA === 2) wA = 0;
+      if (wB === 2) wB = 0;
+    }
+
     updateEnvironment(scene, sun, ambient, hemi, dayAmount, wA, wB, blend);
 
-    // Headlight on at night, foggy, or snowy
-    const headlightOn = dayAmount < 0.3 || wA === 2 || wA === 3 || wB === 2 || wB === 3;
+    // Headlight on at evening, night, or during foggy/snowy weather
+    const headlightOn = phase >= 2 || wA === 2 || wA === 3 || wB === 2 || wB === 3;
     train.setHeadlight(headlightOn);
 
     // Rain/snow visibility (during stable phase or fading in/out)
@@ -180,6 +190,15 @@ function init() {
                    (wB === 1 && blend >= 0.5);
     const isSnow = (wA === 3 && (segT < WEATHER_SEC || blend < 0.5)) ||
                    (wB === 3 && blend >= 0.5);
+
+    // Snow cover on terrain
+    let snowAmount = 0;
+    if (wA === 3) {
+      snowAmount = segT < WEATHER_SEC ? 1 : 1 - blend;
+    } else if (wB === 3) {
+      snowAmount = blend;
+    }
+    chunkManager.setSnow(snowAmount);
 
     const trainPos = train.getPosition();
     rain.mesh.visible = isRain;
@@ -190,6 +209,7 @@ function init() {
 
     train.update(dt);
     chunkManager.update(trainPos);
+    birds.update(dt, trainPos);
 
     const fwd = train.getForward();
     updateCamera(camera, sun, trainPos, fwd);
