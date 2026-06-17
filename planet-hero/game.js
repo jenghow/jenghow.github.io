@@ -379,8 +379,76 @@ function updateMonsterWorldPos(m) {
 
 for (let i=0;i<4;i++) spawnMonster();
 
+// ── Health packs ───────────────────────────────────────────────────────────
+const healthPacks = [];
+const healthPackContainer = new THREE.Group();
+scene.add(healthPackContainer);
+let healthPackTimer = 0;
+const HEALTH_PACK_INTERVAL = 18; // seconds between spawns
+const MAX_HEALTH_PACKS = 3;
+const HEALTH_PACK_PICKUP_RANGE = PLANET_R * 0.35;
+const HEALTH_PACK_HEAL = 10;
+
+function makeHealthPackMesh() {
+  const g = new THREE.Group();
+  // Red cross box base
+  const base = new THREE.Mesh(
+    new THREE.BoxGeometry(0.18, 0.08, 0.18),
+    new THREE.MeshLambertMaterial({ color: 0xdd2222 })
+  );
+  g.add(base);
+  // White cross — horizontal bar
+  const barH = new THREE.Mesh(
+    new THREE.BoxGeometry(0.16, 0.10, 0.05),
+    new THREE.MeshLambertMaterial({ color: 0xffffff })
+  );
+  barH.position.y = 0.005;
+  g.add(barH);
+  // White cross — vertical bar
+  const barV = new THREE.Mesh(
+    new THREE.BoxGeometry(0.05, 0.10, 0.16),
+    new THREE.MeshLambertMaterial({ color: 0xffffff })
+  );
+  barV.position.y = 0.005;
+  g.add(barV);
+  // Subtle glow ring underneath
+  const ring = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.18, 0.18, 0.02, 12),
+    new THREE.MeshBasicMaterial({ color: 0xff6666, transparent: true, opacity: 0.5 })
+  );
+  ring.position.y = -0.05;
+  g.add(ring);
+  g.traverse(c => { if (c.isMesh) c.castShadow = true; });
+  return g;
+}
+
+function spawnHealthPack() {
+  if (healthPacks.length >= MAX_HEALTH_PACKS) return;
+  const theta = rng.float(0, Math.PI * 2);
+  const phi   = rng.float(0.25, Math.PI - 0.25);
+  const mesh  = makeHealthPackMesh();
+  const wrapper = new THREE.Group();
+  wrapper.add(mesh);
+  healthPackContainer.add(wrapper);
+  const hp = { theta, phi, mesh: wrapper, innerMesh: mesh, bob: rng.float(0, Math.PI * 2) };
+  healthPacks.push(hp);
+  updateHealthPackWorldPos(hp);
+}
+
+function updateHealthPackWorldPos(hp) {
+  const wpos = localToWorld(hp.theta, hp.phi, 0.12);
+  hp.mesh.position.copy(wpos);
+  const up = wpos.clone().normalize();
+  hp.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), up);
+}
+
+// Spawn a couple at start
+for (let i = 0; i < 2; i++) spawnHealthPack();
+
 // ── Input ──────────────────────────────────────────────────────────────────
 const keys = {};
+// Analog joystick state — updated by the on-screen joystick, read in update()
+const joystick = { nx: 0, ny: 0 };
 window.addEventListener('keydown', e => {
   keys[e.code]=true;
   if (e.code==='KeyP') togglePause();
@@ -394,6 +462,15 @@ function togglePause() {
   paused=!paused;
   document.getElementById('pause-overlay').classList.toggle('active',paused);
 }
+
+// Tap/click the pause overlay to resume (works on both mobile and desktop).
+// Guard: only resume if actually paused — not on game-over screen.
+document.getElementById('pause-overlay').addEventListener('click', () => {
+  if (paused && !player.dead) togglePause();
+});
+document.getElementById('pause-overlay').addEventListener('touchstart', e => {
+  if (paused && !player.dead) { e.preventDefault(); togglePause(); }
+}, { passive: false });
 
 // ── Player state ───────────────────────────────────────────────────────────
 const player = { hp:100, kills:0, attackCooldown:0, attackAnim:0,
@@ -432,7 +509,7 @@ function triggerHitFlash() {
 // ── Attack ─────────────────────────────────────────────────────────────────
 // In the new scheme the player is always at world (0, PLANET_R, 0).
 // A monster is "near" if its world position is close to the player.
-const ATTACK_RANGE_WORLD = PLANET_R * 1.1; // wider swing radius
+const ATTACK_RANGE_WORLD = PLANET_R * 0.55; // halved from 1.1
 
 function doAttack() {
   if (player.attackCooldown>0) return;
@@ -480,37 +557,40 @@ function update(dt) {
   PLAYER_SURFACE_Y = surfaceR(localUp.x, localUp.y, localUp.z);
   playerGroup.position.y = PLAYER_SURFACE_Y;
 
-  // ── Rotate planet based on WASD ──────────────────────────────────────────
-  // The player always sits at world +Y top. Moving "forward" (W) should make
-  // the planet rotate so it tilts toward the camera (+Z axis rotation).
-  const step = MOVE_SPEED;
-  let moving = false;
+  // ── Rotate planet ────────────────────────────────────────────────────────
+  // Combine keyboard (digital) and joystick (analog) into one input vector.
+  // Keyboard gives a unit vector on each axis; joystick gives -1..1 floats.
+  let inputX = joystick.nx; // +X = right (KeyD), -X = left (KeyA)
+  let inputY = joystick.ny; // +Y = backward (KeyS), -Y = forward (KeyW)
+
+  if (keys['KeyA']) inputX = Math.min(inputX - 1, -1);
+  if (keys['KeyD']) inputX = Math.max(inputX + 1,  1);
+  if (keys['KeyW']) inputY = Math.min(inputY - 1, -1);
+  if (keys['KeyS']) inputY = Math.max(inputY + 1,  1);
+
+  // Clamp to unit circle so diagonals aren't faster
+  const inputLen = Math.sqrt(inputX*inputX + inputY*inputY);
+  const moving = inputLen > 0.01;
+
   let facingAngle = playerMesh.rotation.y;
 
-  const rotQ = new THREE.Quaternion();
-
-  if (keys['KeyW']) {
-    rotQ.setFromAxisAngle(new THREE.Vector3(1,0,0),  step);
-    moving=true; facingAngle=Math.PI;
-  }
-  if (keys['KeyS']) {
-    rotQ.setFromAxisAngle(new THREE.Vector3(1,0,0), -step);
-    moving=true; facingAngle=0;
-  }
-  if (keys['KeyA']) {
-    rotQ.setFromAxisAngle(new THREE.Vector3(0,0,1), -step);
-    moving=true; facingAngle=-Math.PI/2;
-  }
-  if (keys['KeyD']) {
-    rotQ.setFromAxisAngle(new THREE.Vector3(0,0,1),  step);
-    moving=true; facingAngle=Math.PI/2;
-  }
-
   if (moving) {
-    // Apply incremental rotation to the planet
+    const norm = Math.min(inputLen, 1);
+    const nx = inputX / inputLen;
+    const ny = inputY / inputLen;
+
+    // Invert the tilt axis so the planet rolls away from the input direction
+    const axis = new THREE.Vector3(-ny, 0, nx).normalize();
+    const rotQ = new THREE.Quaternion().setFromAxisAngle(axis, MOVE_SPEED * norm);
     planetGroup.quaternion.multiplyQuaternions(rotQ, planetGroup.quaternion);
+
+    // Face the direction the joystick points in screen space.
+    // camAzimuth = horizontal angle of camera from +Z axis.
+    // Adding PI flips "stick up = toward camera" to "stick up = away from camera".
+    const camAzimuth = Math.atan2(camera.position.x, camera.position.z);
+    facingAngle = Math.atan2(-inputX, -inputY) + Math.PI + camAzimuth;
     playerMesh.rotation.y = facingAngle;
-    player.walkAnim += dt*8;
+    player.walkAnim += dt * 8 * norm;
   }
 
   // ── Walk animation ───────────────────────────────────────────────────────
@@ -621,6 +701,32 @@ function update(dt) {
   spawnTimer+=dt;
   if (spawnTimer>=SPAWN_INTERVAL) { spawnTimer=0; spawnMonster(); }
 
+  // ── Health pack update ─────────────────────────────────────────────────
+  healthPackTimer += dt;
+  if (healthPackTimer >= HEALTH_PACK_INTERVAL) { healthPackTimer = 0; spawnHealthPack(); }
+
+  const playerPos2 = new THREE.Vector3(0, PLAYER_SURFACE_Y, 0);
+  for (let i = healthPacks.length - 1; i >= 0; i--) {
+    const hp = healthPacks[i];
+    // Bob up and down
+    hp.bob += dt * 2.5;
+    updateHealthPackWorldPos(hp);
+    // Small extra bob offset in world-up direction
+    const up = hp.mesh.position.clone().normalize();
+    hp.mesh.position.addScaledVector(up, Math.sin(hp.bob) * 0.04);
+    // Spin slowly
+    hp.innerMesh.rotation.y += dt * 1.2;
+
+    // Pickup check
+    if (hp.mesh.position.distanceTo(playerPos2) < HEALTH_PACK_PICKUP_RANGE) {
+      // Heal player, cap at 100
+      player.hp = Math.min(100, player.hp + HEALTH_PACK_HEAL);
+      document.getElementById('hp-val').textContent = player.hp;
+      healthPackContainer.remove(hp.mesh);
+      healthPacks.splice(i, 1);
+    }
+  }
+
   // Remove dead monsters
   for (let i=monsters.length-1;i>=0;i--) {
     if (monsters[i].dead) monsters.splice(i,1);
@@ -659,8 +765,16 @@ function restartGame() {
   monsters.length = 0;
   spawnTimer = 0;
 
+  // Remove all health packs
+  for (const hp of healthPacks) healthPackContainer.remove(hp.mesh);
+  healthPacks.length = 0;
+  healthPackTimer = 0;
+
   // Spawn fresh monsters
   for (let i = 0; i < 4; i++) spawnMonster();
+
+  // Spawn fresh health packs
+  for (let i = 0; i < 2; i++) spawnHealthPack();
 
   // Reset UI
   document.getElementById('hp-val').textContent = 100;
@@ -669,7 +783,7 @@ function restartGame() {
 
   // Restore pause box content for next pause
   document.getElementById('pause-box').innerHTML =
-    `<h1>⏸ PAUSED</h1><p>Press <b>P</b> to Resume</p>`;
+    `<h1>⏸ PAUSED</h1><p>Press <b>P</b> or tap to resume</p>`;
 
   // Hide overlay and resume
   document.getElementById('pause-overlay').classList.remove('active');
@@ -679,52 +793,127 @@ function restartGame() {
 requestAnimationFrame(animate);
 
 // ── Mobile on-screen controls ──────────────────────────────────────────────
-// Wire D-pad and attack button into the same `keys` map the keyboard uses.
 (function setupMobileControls() {
-  // Each D-pad button maps to a keyboard code
-  document.querySelectorAll('.dpad-btn').forEach(btn => {
-    const key = btn.dataset.key;
+  const zone = document.getElementById('joystick-zone');
+  const knob = document.getElementById('joystick-knob');
+  if (!zone || !knob) return;
 
-    const press = e => {
-      e.preventDefault();
-      keys[key] = true;
-      btn.classList.add('pressed');
-    };
-    const release = e => {
-      e.preventDefault();
-      keys[key] = false;
-      btn.classList.remove('pressed');
-    };
+  const ZONE_R  = 65;   // half of zone width (130/2)
+  const KNOB_R  = 26;   // half of knob width  (52/2)
+  const DEAD    = 0.20; // dead-zone: fraction of ZONE_R below which no input registers
+  const MAX_R   = ZONE_R - KNOB_R; // max knob travel from centre
 
-    btn.addEventListener('touchstart',  press,   { passive: false });
-    btn.addEventListener('touchend',    release, { passive: false });
-    btn.addEventListener('touchcancel', release, { passive: false });
-    // Also support mouse for desktop testing of the mobile layout
-    btn.addEventListener('mousedown', press);
-    btn.addEventListener('mouseup',   release);
-    btn.addEventListener('mouseleave',release);
-  });
+  let activeTouchId = null;
+  let zoneRect = null;
+
+  function getZoneCenter() {
+    zoneRect = zone.getBoundingClientRect();
+    return { cx: zoneRect.left + ZONE_R, cy: zoneRect.top + ZONE_R };
+  }
+
+  function applyJoystick(nx, ny) {
+    // Store analog values directly — the update() loop reads joystick.nx/ny
+    joystick.nx = nx;
+    joystick.ny = ny;
+  }
+
+  function releaseJoystick() {
+    joystick.nx = 0;
+    joystick.ny = 0;
+    knob.style.transform = 'translate(-50%, -50%)';
+    activeTouchId = null;
+  }
+
+  function handleMove(clientX, clientY) {
+    const { cx, cy } = getZoneCenter();
+    let dx = clientX - cx;
+    let dy = clientY - cy;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+
+    // Clamp knob within MAX_R
+    const clampedDist = Math.min(dist, MAX_R);
+    const angle = Math.atan2(dy, dx);
+    const kx = Math.cos(angle) * clampedDist;
+    const ky = Math.sin(angle) * clampedDist;
+
+    // Move knob visually
+    knob.style.transform = `translate(calc(-50% + ${kx}px), calc(-50% + ${ky}px))`;
+
+    // Normalise to -1..1 and apply dead-zone
+    const norm = dist / ZONE_R;
+    if (norm < DEAD) {
+      applyJoystick(0, 0);
+    } else {
+      const scale = (norm - DEAD) / (1 - DEAD); // remap so dead-zone edge = 0
+      const nx = Math.cos(angle) * Math.min(scale, 1);
+      const ny = Math.sin(angle) * Math.min(scale, 1);
+      applyJoystick(nx, ny);
+    }
+  }
+
+  // Touch events
+  zone.addEventListener('touchstart', e => {
+    e.preventDefault();
+    if (activeTouchId !== null) return;
+    const t = e.changedTouches[0];
+    activeTouchId = t.identifier;
+    getZoneCenter();
+    handleMove(t.clientX, t.clientY);
+  }, { passive: false });
+
+  zone.addEventListener('touchmove', e => {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      if (t.identifier === activeTouchId) {
+        handleMove(t.clientX, t.clientY);
+        break;
+      }
+    }
+  }, { passive: false });
+
+  zone.addEventListener('touchend',    e => { for (const t of e.changedTouches) if (t.identifier === activeTouchId) releaseJoystick(); }, { passive: false });
+  zone.addEventListener('touchcancel', e => { for (const t of e.changedTouches) if (t.identifier === activeTouchId) releaseJoystick(); }, { passive: false });
+
+  // Mouse fallback for desktop testing
+  let mouseDown = false;
+  zone.addEventListener('mousedown', e => { mouseDown = true; getZoneCenter(); handleMove(e.clientX, e.clientY); });
+  window.addEventListener('mousemove', e => { if (mouseDown) handleMove(e.clientX, e.clientY); });
+  window.addEventListener('mouseup',   () => { if (mouseDown) { mouseDown = false; releaseJoystick(); } });
 
   // Attack button
   const atkBtn = document.getElementById('btn-attack');
   if (atkBtn) {
-    const attack = e => {
-      e.preventDefault();
-      if (!paused && !player.dead) doAttack();
-    };
+    const attack = e => { e.preventDefault(); if (!paused && !player.dead) doAttack(); };
     atkBtn.addEventListener('touchstart', attack, { passive: false });
     atkBtn.addEventListener('mousedown',  attack);
   }
 
-  // Pause button (mobile top-left)
+  // Pause button
   const pauseBtn = document.getElementById('btn-pause-mobile');
   if (pauseBtn) {
     pauseBtn.addEventListener('touchstart', e => { e.preventDefault(); togglePause(); }, { passive: false });
     pauseBtn.addEventListener('click', togglePause);
   }
 
-  // Release all keys if touch is cancelled globally (e.g. incoming call)
-  window.addEventListener('touchcancel', () => {
-    ['KeyW','KeyA','KeyS','KeyD'].forEach(k => { keys[k] = false; });
+  // Release all on global cancel
+  window.addEventListener('touchcancel', releaseJoystick);
+})();
+
+// ── World panel collapse ───────────────────────────────────────────────────
+(function setupWorldPanel() {
+  const panel  = document.getElementById('world-panel');
+  const header = document.getElementById('world-panel-header');
+
+  // Auto-collapse on touch devices
+  if (window.matchMedia('(pointer: coarse)').matches) {
+    panel.classList.add('collapsed');
+  }
+
+  header.addEventListener('click', () => {
+    panel.classList.toggle('collapsed');
   });
+  header.addEventListener('touchstart', e => {
+    e.preventDefault();
+    panel.classList.toggle('collapsed');
+  }, { passive: false });
 })();

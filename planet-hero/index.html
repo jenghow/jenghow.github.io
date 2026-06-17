@@ -19,6 +19,7 @@
     position: fixed; top: 0; left: 0; width: 100%; height: 100%;
     background: rgba(20,8,2,0.72); display: none;
     align-items: center; justify-content: center; z-index: 30;
+    cursor: pointer;
   }
   #pause-overlay.active { display: flex; }
   #pause-box {
@@ -28,7 +29,7 @@
   #pause-box h1 { font-size: 42px; margin-bottom: 12px; text-shadow: 2px 2px 6px #000; }
   #pause-box p { font-size: 18px; color: #deb887; }
   #world-panel {
-    position: fixed; top: 50%; right: 18px; transform: translateY(-50%);
+    position: fixed; top: 18px; right: 18px;
     background: rgba(101,60,20,0.93); border: 2px solid #d4a96a;
     border-radius: 14px; color: #f5deb3;
     width: 175px; z-index: 15; overflow: hidden;
@@ -84,24 +85,20 @@
     #controls-hint   { display: none; }
   }
 
-  #dpad {
-    position: fixed; bottom: 28px; left: 28px;
-    width: 144px; height: 144px;
-    display: grid;
-    grid-template-columns: repeat(3, 48px);
-    grid-template-rows:    repeat(3, 48px);
-    z-index: 20; user-select: none;
+  /* ── Joystick ────────────────────────────────────────────────────────── */
+  #joystick-zone {
+    position: fixed; bottom: 20px; left: 20px;
+    width: 130px; height: 130px; border-radius: 50%;
+    background: rgba(101,60,20,0.45); border: 2px solid rgba(212,169,106,0.5);
+    z-index: 20; touch-action: none; user-select: none;
   }
-
-  .dpad-btn {
-    background: rgba(139,90,43,0.82); border: 2px solid #d4a96a;
-    border-radius: 10px; color: #f5deb3; font-size: 22px;
-    display: flex; align-items: center; justify-content: center;
-    cursor: pointer; touch-action: none; -webkit-tap-highlight-color: transparent;
-    transition: background 0.1s;
+  #joystick-knob {
+    position: absolute; width: 52px; height: 52px; border-radius: 50%;
+    background: rgba(184,118,42,0.90); border: 2px solid #f5deb3;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.45);
+    top: 50%; left: 50%; transform: translate(-50%, -50%);
+    pointer-events: none; transition: background 0.1s;
   }
-  .dpad-btn:active, .dpad-btn.pressed { background: #b8762a; }
-  .dpad-center { background: transparent; border: none; pointer-events: none; }
 
   #btn-attack {
     position: fixed; bottom: 42px; right: 36px;
@@ -137,7 +134,7 @@
 <div id="pause-overlay">
   <div id="pause-box">
     <h1>⏸ PAUSED</h1>
-    <p>Press <b>P</b> to Resume</p>
+    <p>Press <b>P</b> or tap to resume</p>
   </div>
 </div>
 <div id="world-panel">
@@ -171,19 +168,8 @@
 
 <!-- Mobile on-screen controls -->
 <div id="mobile-controls">
-  <div id="dpad">
-    <!-- row 1 -->
-    <div></div>
-    <div class="dpad-btn" id="btn-up"    data-key="KeyW">▲</div>
-    <div></div>
-    <!-- row 2 -->
-    <div class="dpad-btn" id="btn-left"  data-key="KeyA">◀</div>
-    <div class="dpad-center"></div>
-    <div class="dpad-btn" id="btn-right" data-key="KeyD">▶</div>
-    <!-- row 3 -->
-    <div></div>
-    <div class="dpad-btn" id="btn-down"  data-key="KeyS">▼</div>
-    <div></div>
+  <div id="joystick-zone">
+    <div id="joystick-knob"></div>
   </div>
   <button id="btn-attack">⚔</button>
 </div>
