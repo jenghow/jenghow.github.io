@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Procedural Train Simulator</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; width: 100%; overflow: hidden; }
+  body { background: #000; font-family: monospace; }
+  canvas { display: block; }
+  #loading {
+    position: fixed; inset: 0; display: flex; align-items: center;
+    justify-content: center; color: #fff; font-size: 24px;
+    background: #1a1a2e; z-index: 10;
+  }
+  #error {
+    position: fixed; inset: 0; display: none; align-items: center;
+    justify-content: center; color: #f88; font-size: 16px;
+    background: #1a1a2e; z-index: 20; padding: 40px;
+    text-align: center; white-space: pre-wrap;
+  }
+  #music-controls {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 12px; z-index: 5;
+  }
+  #music-controls button {
+    background: rgba(0,0,0,0.55); color: #ccc; border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 6px; padding: 8px 18px; font-size: 14px; font-family: monospace;
+    cursor: pointer; transition: all 0.15s; user-select: none;
+  }
+  #music-controls button:hover { background: rgba(255,255,255,0.12); color: #fff; }
+  #music-controls button.active { border-color: #6af; color: #6af; }
+</style>
+</head>
+<body>
+<div id="loading">Generating world...</div>
+<div id="error"></div>
+<div id="music-controls">
+  <button id="btn-play">&#9654; Play</button>
+  <button id="btn-loop">&#x21bb; Loop</button>
+</div>
+
+<script>
+setTimeout(function(){
+  var el = document.getElementById('loading');
+  if (el) el.innerHTML = 'Still loading...<br><br>Make sure you are running a local server.<br>Open a terminal in this folder and run:<br><b>npx serve .</b><br><br>Or use Python: <b>python -m http.server</b>';
+}, 4000);
+</script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+  }
+}
+</script>
+<script type="module" src="src/app.js"></script>
+</body>
+</html>
