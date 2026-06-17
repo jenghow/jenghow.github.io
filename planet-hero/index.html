@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Planet Guardian</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #2c1a0e; overflow: hidden; font-family: 'Georgia', serif; }
+  #canvas { display: block; }
+  #score-bar {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: rgba(139,90,43,0.88); border: 2px solid #d4a96a;
+    border-radius: 12px; padding: 8px 28px; color: #f5deb3;
+    font-size: 20px; font-weight: bold; letter-spacing: 2px;
+    text-shadow: 1px 1px 3px #000; pointer-events: none; z-index: 15;
+  }
+  #pause-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(20,8,2,0.72); display: none;
+    align-items: center; justify-content: center; z-index: 30;
+  }
+  #pause-overlay.active { display: flex; }
+  #pause-box {
+    background: rgba(139,90,43,0.97); border: 3px solid #d4a96a;
+    border-radius: 18px; padding: 40px 60px; text-align: center; color: #f5deb3;
+  }
+  #pause-box h1 { font-size: 42px; margin-bottom: 12px; text-shadow: 2px 2px 6px #000; }
+  #pause-box p { font-size: 18px; color: #deb887; }
+  #world-panel {
+    position: fixed; top: 50%; right: 18px; transform: translateY(-50%);
+    background: rgba(101,60,20,0.93); border: 2px solid #d4a96a;
+    border-radius: 14px; color: #f5deb3;
+    width: 175px; z-index: 15; overflow: hidden;
+    transition: height 0.25s ease;
+  }
+  #world-panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 11px 14px; cursor: pointer; user-select: none;
+    border-bottom: 1px solid #d4a96a;
+  }
+  #world-panel-header h3 {
+    font-size: 14px; letter-spacing: 1px; margin: 0;
+  }
+  #world-panel-toggle {
+    font-size: 13px; color: #d4a96a; transition: transform 0.25s;
+    line-height: 1;
+  }
+  #world-panel.collapsed #world-panel-toggle { transform: rotate(-90deg); }
+  #world-panel-body {
+    padding: 4px 14px 14px;
+    transition: opacity 0.2s;
+  }
+  #world-panel.collapsed #world-panel-body {
+    display: none;
+  }
+  .wp-label { font-size: 12px; color: #deb887; margin-bottom: 5px; margin-top: 10px; }
+  .wp-btn-row { display: flex; flex-wrap: wrap; gap: 5px; }
+  .wp-btn {
+    flex: 1 1 calc(50% - 5px); background: rgba(80,45,10,0.85);
+    border: 1px solid #a0724a; border-radius: 7px; color: #f5deb3;
+    font-size: 11px; padding: 5px 3px; cursor: pointer; text-align: center;
+    transition: background 0.2s;
+  }
+  .wp-btn:hover { background: rgba(180,120,50,0.85); }
+  .wp-btn.active { background: #b8762a; border-color: #f5deb3; font-weight: bold; }
+  #hitflash {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(200,50,50,0.38); pointer-events: none;
+    z-index: 18; opacity: 0; transition: opacity 0.18s;
+  }
+  #controls-hint {
+    position: fixed; top: 18px; right: 210px;
+    background: rgba(101,60,20,0.78); border: 1px solid #a0724a;
+    border-radius: 8px; padding: 7px 13px; color: #deb887;
+    font-size: 11px; line-height: 1.7; pointer-events: none; z-index: 15;
+  }
+
+  /* ── Mobile controls ─────────────────────────────────────────── */
+  #mobile-controls { display: none; }
+
+  @media (pointer: coarse) {
+    #mobile-controls { display: block; }
+    #controls-hint   { display: none; }
+  }
+
+  #dpad {
+    position: fixed; bottom: 28px; left: 28px;
+    width: 144px; height: 144px;
+    display: grid;
+    grid-template-columns: repeat(3, 48px);
+    grid-template-rows:    repeat(3, 48px);
+    z-index: 20; user-select: none;
+  }
+
+  .dpad-btn {
+    background: rgba(139,90,43,0.82); border: 2px solid #d4a96a;
+    border-radius: 10px; color: #f5deb3; font-size: 22px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; touch-action: none; -webkit-tap-highlight-color: transparent;
+    transition: background 0.1s;
+  }
+  .dpad-btn:active, .dpad-btn.pressed { background: #b8762a; }
+  .dpad-center { background: transparent; border: none; pointer-events: none; }
+
+  #btn-attack {
+    position: fixed; bottom: 42px; right: 36px;
+    width: 80px; height: 80px; border-radius: 50%;
+    background: rgba(180,60,40,0.88); border: 3px solid #f5deb3;
+    color: #f5deb3; font-size: 32px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; touch-action: none; z-index: 20;
+    -webkit-tap-highlight-color: transparent;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    transition: background 0.1s;
+  }
+  #btn-attack:active { background: rgba(220,80,50,0.95); }
+
+  #btn-pause-mobile {
+    position: fixed; top: 18px; left: 18px;
+    width: 48px; height: 48px; border-radius: 10px;
+    background: rgba(139,90,43,0.88); border: 2px solid #d4a96a;
+    color: #f5deb3; font-size: 20px;
+    display: none; align-items: center; justify-content: center;
+    cursor: pointer; touch-action: none; z-index: 20;
+  }
+  @media (pointer: coarse) {
+    #btn-pause-mobile { display: flex; }
+  }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div id="hud-hp" style="display:none">❤️ HP: <span id="hp-val-hidden">100</span></div>
+<div id="score-bar">❤️ HP: <span id="hp-val">100</span> &nbsp;|&nbsp; ⚔️ Kills: <span id="kill-count">0</span></div>
+<div id="hitflash" id="hitflash"></div>
+<div id="pause-overlay">
+  <div id="pause-box">
+    <h1>⏸ PAUSED</h1>
+    <p>Press <b>P</b> to Resume</p>
+  </div>
+</div>
+<div id="world-panel">
+  <div id="world-panel-header">
+    <h3>🌍 World</h3>
+    <span id="world-panel-toggle">▼</span>
+  </div>
+  <div id="world-panel-body">
+    <div class="wp-label">Time of Day</div>
+    <div class="wp-btn-row">
+      <button class="wp-btn active" data-tod="morning">🌅 Morn</button>
+      <button class="wp-btn" data-tod="noon">☀️ Noon</button>
+      <button class="wp-btn" data-tod="evening">🌆 Eve</button>
+      <button class="wp-btn" data-tod="night">🌙 Night</button>
+    </div>
+    <div class="wp-label">Weather</div>
+    <div class="wp-btn-row">
+      <button class="wp-btn active" data-weather="clear">☀ Clear</button>
+      <button class="wp-btn" data-weather="rainy">🌧 Rain</button>
+      <button class="wp-btn" data-weather="snowing">❄ Snow</button>
+    </div>
+    <div class="wp-label">Monster Count: <span id="monster-count-val">8</span></div>
+    <input id="monster-slider" type="range" min="1" max="10" value="8"
+      style="width:100%;accent-color:#b8762a;margin-top:3px;cursor:pointer;">
+  </div>
+</div>
+<div id="controls-hint">
+  WASD – Move &nbsp;|&nbsp; SPACE – Attack<br>
+  P – Pause/Resume
+</div>
+
+<!-- Mobile on-screen controls -->
+<div id="mobile-controls">
+  <div id="dpad">
+    <!-- row 1 -->
+    <div></div>
+    <div class="dpad-btn" id="btn-up"    data-key="KeyW">▲</div>
+    <div></div>
+    <!-- row 2 -->
+    <div class="dpad-btn" id="btn-left"  data-key="KeyA">◀</div>
+    <div class="dpad-center"></div>
+    <div class="dpad-btn" id="btn-right" data-key="KeyD">▶</div>
+    <!-- row 3 -->
+    <div></div>
+    <div class="dpad-btn" id="btn-down"  data-key="KeyS">▼</div>
+    <div></div>
+  </div>
+  <button id="btn-attack">⚔</button>
+</div>
+<button id="btn-pause-mobile">⏸</button>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="game.js"></script>
+</body>
+</html>

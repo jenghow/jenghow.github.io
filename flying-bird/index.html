@@ -1,0 +1,1139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>3D Bird Flying Simulator</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+canvas { display: block; }
+#hud {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  color: #fff; font-family: monospace; font-size: 14px;
+  background: rgba(0,0,0,0.55); padding: 8px 18px; border-radius: 6px;
+  pointer-events: none; z-index: 10; letter-spacing: 0.04em;
+}
+#controls-help {
+  position: fixed; top: 20px; right: 20px;
+  color: #eee; font-family: monospace; font-size: 12px;
+  background: rgba(0,0,0,0.6); padding: 12px 16px; border-radius: 6px;
+  pointer-events: none; z-index: 10; line-height: 1.8;
+}
+#perf-hud {
+  position: fixed; bottom: 20px; right: 20px;
+  color: #adffa8; font-family: monospace; font-size: 13px;
+  background: rgba(0,0,0,0.5); padding: 6px 14px; border-radius: 6px;
+  pointer-events: none; z-index: 10; line-height: 1.7;
+  text-align: right;
+}
+
+/* ── Start Modal ── */
+#start-modal {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.72);
+  font-family: 'Courier New', monospace;
+}
+#start-modal .box {
+  background: rgba(10,15,30,0.95);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 14px;
+  padding: 44px 60px;
+  text-align: center;
+  color: #fff;
+  max-width: 520px;
+  width: 90%;
+  box-shadow: 0 8px 48px rgba(0,0,0,0.7);
+}
+#start-modal h1 {
+  font-size: 26px; margin-bottom: 6px; letter-spacing: 0.06em;
+  color: #a8d8ff;
+}
+#start-modal .subtitle {
+  font-size: 12px; color: #7ab; margin-bottom: 28px; letter-spacing: 0.08em;
+}
+#start-modal .controls-grid {
+  display: grid; grid-template-columns: auto 1fr;
+  gap: 8px 18px; text-align: left;
+  margin: 0 auto 28px; width: fit-content;
+  font-size: 13px;
+}
+#start-modal .key-badge {
+  display: inline-block;
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.35);
+  border-radius: 5px;
+  padding: 3px 10px;
+  font-size: 13px; font-weight: bold;
+  letter-spacing: 0.05em; color: #ffe;
+  text-align: center; min-width: 40px;
+}
+#start-modal .key-desc { color: #ccd; line-height: 1.9; }
+#start-modal .divider {
+  border: none; border-top: 1px solid rgba(255,255,255,0.1);
+  margin: 20px 0;
+}
+#start-modal .press-space {
+  font-size: 15px; color: #fff; letter-spacing: 0.1em;
+  animation: pulse 1.8s ease-in-out infinite;
+}
+#start-modal .hint {
+  font-size: 11px; color: #778; margin-top: 10px;
+}
+@keyframes pulse {
+  0%,100% { opacity: 1; } 50% { opacity: 0.4; }
+}
+
+/* ── Touch UI (mobile only — hidden by default, shown via JS on detection) ── */
+#touch-ui { display: none; }
+
+/* Joystick */
+#joystick-zone {
+  position: fixed; bottom: 28px; left: 28px; z-index: 50;
+  width: 130px; height: 130px;
+  touch-action: none; user-select: none;
+}
+#joystick-base {
+  width: 130px; height: 130px; border-radius: 50%;
+  background: rgba(255,255,255,0.08);
+  border: 2px solid rgba(255,255,255,0.22);
+  position: absolute;
+}
+#joystick-knob {
+  width: 52px; height: 52px; border-radius: 50%;
+  background: rgba(255,255,255,0.30);
+  border: 2px solid rgba(255,255,255,0.55);
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  transition: background 0.1s;
+}
+
+/* Action buttons */
+#action-btns {
+  position: fixed; bottom: 28px; right: 28px; z-index: 50;
+  display: flex; flex-direction: column; gap: 18px;
+  touch-action: none; user-select: none;
+}
+.action-btn {
+  width: 68px; height: 68px; border-radius: 50%;
+  font-size: 26px; font-weight: bold;
+  display: flex; align-items: center; justify-content: center;
+  border: 2px solid rgba(255,255,255,0.4);
+  color: #fff; cursor: pointer;
+  user-select: none; -webkit-user-select: none;
+  touch-action: none;
+  transition: transform 0.08s, opacity 0.08s;
+}
+.action-btn:active { transform: scale(0.92); opacity: 0.75; }
+#btn-flap { background: rgba(50,130,255,0.55); }
+#btn-dive { background: rgba(255,120,30,0.55);  }
+
+/* Mobile pause button */
+#mobile-pause-btn {
+  position: fixed; top: 18px; left: 18px;
+  z-index: 50;
+  width: 52px; height: 52px; border-radius: 50%;
+  background: rgba(0,0,0,0.5);
+  border: 1.5px solid rgba(255,255,255,0.35);
+  color: #fff; font-size: 22px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; touch-action: manipulation;
+}
+
+/* Mobile controls hint (replaces keyboard panel) */
+#mobile-controls-hint {
+  position: fixed; top: 20px; right: 20px;
+  color: #eee; font-family: monospace; font-size: 11px;
+  background: rgba(0,0,0,0.6); padding: 10px 14px; border-radius: 6px;
+  pointer-events: none; z-index: 10; line-height: 1.8;
+}
+</style>
+</head>
+<body>
+
+<!-- ── Start modal ── -->
+<div id="start-modal">
+  <div class="box">
+    <h1>🐦 Bird Flight Simulator</h1>
+    <p class="subtitle">Procedurally generated infinite world</p>
+    <div class="controls-grid">
+      <span class="key-badge">W</span>
+      <span class="key-desc">Accelerate / pitch nose down</span>
+      <span class="key-badge">S</span>
+      <span class="key-desc">Brake / pitch nose up</span>
+      <span class="key-badge">A / D</span>
+      <span class="key-desc">Bank and steer left / right</span>
+      <span class="key-badge">E</span>
+      <span class="key-desc">Flap wings — gain altitude</span>
+      <span class="key-badge">Q</span>
+      <span class="key-desc">Dive — gain speed</span>
+      <span class="key-badge">Space</span>
+      <span class="key-desc">Pause / Resume</span>
+    </div>
+    <hr class="divider"/>
+    <!-- Desktop prompt -->
+    <p class="press-space" id="modal-space-prompt">▶ &nbsp; PRESS SPACE TO FLY &nbsp; ◀</p>
+    <!-- Mobile prompt (shown by JS when mobile detected) -->
+    <button id="modal-tap-btn" style="display:none;
+      margin: 0 auto; padding: 14px 40px; font-size: 17px; font-weight: bold;
+      background: rgba(80,160,255,0.7); color: #fff; border: 2px solid rgba(255,255,255,0.4);
+      border-radius: 30px; cursor: pointer; letter-spacing: 0.08em; font-family: 'Courier New', monospace;">
+      ▶ &nbsp; TAP TO FLY
+    </button>
+    <p class="hint">Use the panel on the left to tweak terrain, biomes &amp; physics</p>
+  </div>
+</div>
+
+<!-- ── In-flight HUD ── -->
+<div id="hud" style="display:none">Speed: 0 | Alt: 0m | Height: 0</div>
+<div id="controls-help" style="display:none">
+  <b>Controls</b><br>
+  W — Accelerate / pitch down<br>
+  S — Brake / pitch up<br>
+  A / D — Bank &amp; steer<br>
+  E — Flap wings (ascend)<br>
+  Q — Dive<br>
+  Space — Pause / Resume
+</div>
+<div id="pause-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55);
+  color:#fff; font-family:monospace; font-size:32px; font-weight:bold;
+  align-items:center; justify-content:center; flex-direction:column; z-index:20; gap:14px;">
+  <span>⏸ PAUSED</span>
+  <span id="pause-resume-hint" style="font-size:15px; font-weight:normal; opacity:0.75;">Press Space to resume</span>
+</div>
+<div id="perf-hud" style="display:none">FPS: --<br>Chunks: --</div>
+
+<!-- ── Touch UI (shown only on mobile, hidden by JS on desktop) ── -->
+<div id="touch-ui">
+  <!-- Virtual joystick -->
+  <div id="joystick-zone">
+    <div id="joystick-base"></div>
+    <div id="joystick-knob"></div>
+  </div>
+
+  <!-- Flap / Dive buttons -->
+  <div id="action-btns">
+    <div class="action-btn" id="btn-flap">🪶</div>
+    <div class="action-btn" id="btn-dive">↓</div>
+  </div>
+
+  <!-- Pause button -->
+  <div id="mobile-pause-btn">⏸</div>
+
+  <!-- Mobile controls hint -->
+  <div id="mobile-controls-hint" style="display:none">
+    <b>Controls</b><br>
+    Joystick — steer / pitch<br>
+    🪶 — Flap (ascend)<br>
+    ↓ — Dive<br>
+    ⏸ — Pause
+  </div>
+</div>
+
+<!-- Tone.js for MIDI audio (must be classic script, not module) -->
+<script src="https://cdn.jsdelivr.net/npm/tone@14.8.49/build/Tone.js"></script>
+<script>
+// ── MIDI parser (binary → note events) ──
+const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+function midiNoteName(n) { return NOTE_NAMES[n % 12] + (Math.floor(n / 12) - 1); }
+
+function parseMidi(buf) {
+  const d = new DataView(buf);
+  let p = 0;
+  const u8  = () => d.getUint8(p++);
+  const u16 = () => { const v = d.getUint16(p);  p += 2; return v; };
+  const u32 = () => { const v = d.getUint32(p);  p += 4; return v; };
+  const vlq = () => { let v = 0, b; do { b = u8(); v = (v << 7) | (b & 0x7F); } while (b & 0x80); return v; };
+  const str = n => { let s = ''; for (let i = 0; i < n; i++) s += String.fromCharCode(u8()); return s; };
+
+  if (str(4) !== 'MThd') throw new Error('Not MIDI');
+  const hdrLen = u32(); const fmt = u16(); const nTrk = u16(); const div = u16();
+  p += hdrLen - 6;
+
+  let tempo = 500000;
+  const events = [];
+
+  for (let t = 0; t < nTrk; t++) {
+    if (str(4) !== 'MTrk') throw new Error('Bad track');
+    const trkLen = u32(); const trkEnd = p + trkLen;
+    let run = 0, ticks = 0;
+    while (p < trkEnd) {
+      ticks += vlq();
+      let st = u8();
+      if (st === 0xFF) {
+        const mt = u8(); const ml = vlq();
+        if (mt === 0x51 && ml >= 3) tempo = (u8() << 16) | (u8() << 8) | u8();
+        else p += ml;
+        run = 0;
+      } else if (st === 0xF0 || st === 0xF7) { p += vlq(); run = 0; }
+      else {
+        if (st & 0x80) { run = st; } else { st = run; p--; }
+        const ty = st & 0xF0;
+        if      (ty === 0x90) { const n = u8(); const v = u8(); if (v > 0) events.push({ t:'on',  tick:ticks, note:n, vel:v/127, tempo }); }
+        else if (ty === 0x80) { const n = u8(); u8();               events.push({ t:'off', tick:ticks, note:n }); }
+        else if (ty === 0xA0 || ty === 0xE0) { p += 2; }
+        else if (ty === 0xB0 || ty === 0xC0 || ty === 0xD0) { p++; }
+      }
+    }
+    p = trkEnd;
+  }
+
+  events.sort((a, b) => a.tick - b.tick);
+  let curTempo = 500000, lastTick = 0, lastTime = 0;
+  const notes = [], active = {};
+  for (const ev of events) {
+    if (ev.tempo) curTempo = ev.tempo;
+    lastTime += ((ev.tick - lastTick) * curTempo) / (div * 1e6);
+    lastTick = ev.tick;
+    if (ev.t === 'on') active[ev.note] = { time: lastTime, vel: ev.vel };
+    else if (active[ev.note]) {
+      notes.push({ time: active[ev.note].time, duration: Math.max(lastTime - active[ev.note].time, 0.05), note: ev.note, vel: active[ev.note].vel });
+      delete active[ev.note];
+    }
+  }
+  return { notes, duration: lastTime, bpm: 60e6 / curTempo };
+}
+
+// ── Audio — pre-fetch MIDI on page load so it's ready when the user taps ──
+let audioReady = false, audioSynth = null, audioPart = null;
+let _midiBuffer = null;
+
+// Fetch MIDI immediately — network fetch doesn't need a gesture
+fetch('./music.mid')
+  .then(r => r.ok ? r.arrayBuffer() : Promise.reject(r.status))
+  .then(ab => { _midiBuffer = ab; })
+  .catch(e => console.warn('MIDI pre-fetch failed:', e));
+
+async function initAudio() {
+  if (audioReady) return;
+  try {
+    await Tone.start();
+
+    if (!_midiBuffer) {
+      const r = await fetch('./music.mid');
+      _midiBuffer = await r.arrayBuffer();
+    }
+
+    const { notes, duration, bpm } = parseMidi(_midiBuffer);
+
+    audioSynth = new Tone.PolySynth(Tone.Synth, {
+      oscillator: { type: 'triangle' },
+      envelope: { attack: 0.02, decay: 0.25, sustain: 0.35, release: 1.4 }
+    }).toDestination();
+    audioSynth.volume.value = -12;
+
+    audioPart = new Tone.Part((time, note) => {
+      audioSynth.triggerAttackRelease(note.name, note.dur, time, note.vel);
+    }, notes.map(n => [n.time, { name: midiNoteName(n.note), dur: n.duration, vel: n.vel }]));
+
+    audioPart.loop    = true;
+    audioPart.loopEnd = duration;
+    audioPart.start(0);
+
+    Tone.Transport.bpm.value = bpm;
+    Tone.Transport.loop      = true;
+    Tone.Transport.loopStart = 0;
+    Tone.Transport.loopEnd   = duration;
+    Tone.Transport.start('+0.05');
+    audioReady = true;
+  } catch(e) { console.warn('Audio init failed:', e); }
+}
+
+function setAudioPaused(p) {
+  if (!audioReady) return;
+  if (p) Tone.Transport.pause();
+  else   Tone.Transport.start();
+}
+</script>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.19.2/dist/lil-gui.esm.min.js"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import GUI from 'lil-gui';
+
+// ─────────────────────────────────────────────
+// WORLD PARAMETERS
+// ─────────────────────────────────────────────
+const params = {
+  noiseScale: 0.0035,
+  elevationMultiplier: 140,
+  waterLevel: 0.28,
+  snowLine: 0.72,
+  fogDensity: 0.002,
+  fogColor: '#93bdd4',
+  cloudDensity: 5,
+  timeOfDay: 0.55,
+  chunkRenderDistance: 5,
+  treeCount: 40,
+  gravityScale: 1.0
+};
+
+// ─────────────────────────────────────────────
+// SIMPLEX NOISE
+// ─────────────────────────────────────────────
+class SimplexNoise {
+  constructor() {
+    const p = [];
+    for (let i = 0; i < 256; i++) p[i] = i;
+    for (let i = 255; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [p[i], p[j]] = [p[j], p[i]];
+    }
+    this.perm = new Uint8Array(512);
+    this.permMod12 = new Uint8Array(512);
+    for (let i = 0; i < 512; i++) {
+      this.perm[i] = p[i & 255];
+      this.permMod12[i] = this.perm[i] % 12;
+    }
+    this.G3 = [[1,1,0],[-1,1,0],[1,-1,0],[-1,-1,0],[1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1],[0,1,1],[0,-1,1],[0,1,-1],[0,-1,-1]];
+  }
+  noise(xin, yin) {
+    const G = this.G3;
+    const F2 = 0.5 * (Math.sqrt(3) - 1), G2 = (3 - Math.sqrt(3)) / 6;
+    const s = (xin + yin) * F2;
+    const i = Math.floor(xin + s), j = Math.floor(yin + s);
+    const t = (i + j) * G2;
+    const x0 = xin - (i - t), y0 = yin - (j - t);
+    const i1 = x0 > y0 ? 1 : 0, j1 = x0 > y0 ? 0 : 1;
+    const x1 = x0 - i1 + G2, y1 = y0 - j1 + G2;
+    const x2 = x0 - 1 + 2 * G2, y2 = y0 - 1 + 2 * G2;
+    const ii = i & 255, jj = j & 255;
+    const g0 = this.permMod12[ii + this.perm[jj]];
+    const g1 = this.permMod12[ii + i1 + this.perm[jj + j1]];
+    const g2 = this.permMod12[ii + 1 + this.perm[jj + 1]];
+    let n0 = 0, n1 = 0, n2 = 0;
+    let t0 = 0.5 - x0*x0 - y0*y0; if (t0 >= 0) { t0 *= t0; n0 = t0*t0*(G[g0][0]*x0 + G[g0][1]*y0); }
+    let t1 = 0.5 - x1*x1 - y1*y1; if (t1 >= 0) { t1 *= t1; n1 = t1*t1*(G[g1][0]*x1 + G[g1][1]*y1); }
+    let t2 = 0.5 - x2*x2 - y2*y2; if (t2 >= 0) { t2 *= t2; n2 = t2*t2*(G[g2][0]*x2 + G[g2][1]*y2); }
+    return 70 * (n0 + n1 + n2);
+  }
+}
+const snoise = new SimplexNoise();
+
+// fBm – fractal brownian motion using 4 octaves
+function fbm(x, z) {
+  const sc = params.noiseScale;
+  let v = 0;
+  v += snoise.noise(x * sc,      z * sc)      * 1.000;
+  v += snoise.noise(x * sc * 2,  z * sc * 2)  * 0.500;
+  v += snoise.noise(x * sc * 4,  z * sc * 4)  * 0.250;
+  v += snoise.noise(x * sc * 8,  z * sc * 8)  * 0.125;
+  // ridged component for sharper mountain peaks
+  const ridge = Math.abs(snoise.noise(x * sc * 0.5, z * sc * 0.5));
+  v += (0.5 - ridge) * 0.4;
+  return v; // range roughly -1.875 .. +1.875
+}
+
+function getHeight(x, z) {
+  const raw = fbm(x, z);
+  const t = (raw + 1.875) / 3.75; // normalise 0..1
+  return t * params.elevationMultiplier;
+}
+
+// ─────────────────────────────────────────────
+// RENDERER & SCENE
+// ─────────────────────────────────────────────
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(params.fogColor, params.fogDensity);
+scene.background = new THREE.Color(params.fogColor);
+
+const camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, 0.5, 3000);
+
+// ─────────────────────────────────────────────
+// LIGHTING
+// ─────────────────────────────────────────────
+const ambient  = new THREE.AmbientLight(0x7090b0, 0.7);
+scene.add(ambient);
+const sun = new THREE.DirectionalLight(0xffe8c0, 1.4);
+sun.position.set(200, 300, 100);
+scene.add(sun);
+const hemi = new THREE.HemisphereLight(0x5588aa, 0x446633, 0.5);
+scene.add(hemi);
+
+// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// BIRD MODEL
+// ─────────────────────────────────────────────
+const birdGroup = new THREE.Group();
+const birdParts = {};
+
+(function buildBird() {
+  const bodyMat  = new THREE.MeshStandardMaterial({ color: 0x4a5568, roughness: 0.7 });
+  const darkMat  = new THREE.MeshStandardMaterial({ color: 0x2d3748, roughness: 0.6 });
+  const wingMat  = new THREE.MeshStandardMaterial({ color: 0x374151, side: THREE.DoubleSide, roughness: 0.65 });
+  const wingUnder= new THREE.MeshStandardMaterial({ color: 0x9ca3af, side: THREE.DoubleSide, roughness: 0.7 });
+  const beakMat  = new THREE.MeshStandardMaterial({ color: 0xed8936, roughness: 0.4 });
+  const eyeMat   = new THREE.MeshStandardMaterial({ color: 0x1a1a1a });
+
+  // Body — capsule oriented along Z (forward)
+  const bodyG = new THREE.CapsuleGeometry(0.55, 2.2, 10, 14);
+  const body  = new THREE.Mesh(bodyG, bodyMat);
+  body.rotation.x = Math.PI / 2;
+  birdGroup.add(body);
+
+  // Head
+  const headG = new THREE.SphereGeometry(0.38, 14, 10);
+  const head  = new THREE.Mesh(headG, darkMat);
+  head.position.set(0, 0.18, -1.45);   // -Z = forward/nose
+  birdGroup.add(head);
+
+  // Beak — cone pointing forward (-Z)
+  const beakG = new THREE.ConeGeometry(0.1, 0.55, 8);
+  const beak  = new THREE.Mesh(beakG, beakMat);
+  beak.rotation.x = Math.PI / 2;       // cone tip → -Z
+  beak.position.set(0, 0.08, -1.85);
+  birdGroup.add(beak);
+
+  // Eyes
+  const eyeG = new THREE.SphereGeometry(0.055, 8, 6);
+  [-1, 1].forEach(side => {
+    const eye = new THREE.Mesh(eyeG, eyeMat);
+    eye.position.set(side * 0.24, 0.30, -1.35);
+    birdGroup.add(eye);
+  });
+
+  // Wing helper: curved quad via ShapeGeometry in XZ plane
+  function makeWing(len, rootW, tipW, mat) {
+    const sh = new THREE.Shape();
+    sh.moveTo(0, -rootW / 2);
+    sh.lineTo(0,  rootW / 2);
+    sh.quadraticCurveTo(-len * 0.55,  tipW * 0.65, -len,  tipW / 2);
+    sh.lineTo(-len, -tipW / 2);
+    sh.quadraticCurveTo(-len * 0.55, -tipW * 0.65, 0, -rootW / 2);
+    const g = new THREE.ShapeGeometry(sh);
+    g.rotateX(-Math.PI / 2);   // lay flat in XZ plane
+    return new THREE.Mesh(g, mat);
+  }
+
+  // ── Left wing ──
+  birdParts.leftWingPivot = new THREE.Group();
+  birdParts.leftWingPivot.position.set(-0.55, 0.12, 0.1);
+  birdGroup.add(birdParts.leftWingPivot);
+
+  birdParts.leftWingPivot.add(makeWing(1.6, 0.5, 0.75, wingMat));
+
+  const luP = new THREE.Group();
+  luP.position.set(-1.6, 0, 0.05);
+  birdParts.leftWingPivot.add(luP);
+  luP.add(makeWing(1.4, 0.75, 0.25, wingMat));
+  birdParts.leftOuterPivot = luP;
+
+  const lUnder = makeWing(1.6, 0.48, 0.7, wingUnder);
+  lUnder.position.y = -0.02;
+  birdParts.leftWingPivot.add(lUnder);
+
+  // ── Right wing (X-mirrored) ──
+  birdParts.rightWingPivot = new THREE.Group();
+  birdParts.rightWingPivot.position.set(0.55, 0.12, 0.1);
+  birdGroup.add(birdParts.rightWingPivot);
+
+  const rw = makeWing(1.6, 0.5, 0.75, wingMat);
+  rw.scale.x = -1;
+  birdParts.rightWingPivot.add(rw);
+
+  const ruP = new THREE.Group();
+  ruP.position.set(1.6, 0, 0.05);
+  birdParts.rightWingPivot.add(ruP);
+  const rou = makeWing(1.4, 0.75, 0.25, wingMat);
+  rou.scale.x = -1;
+  ruP.add(rou);
+  birdParts.rightOuterPivot = ruP;
+
+  const rUnder = makeWing(1.6, 0.48, 0.7, wingUnder);
+  rUnder.scale.x = -1;
+  rUnder.position.y = -0.02;
+  birdParts.rightWingPivot.add(rUnder);
+
+  // ── Tail ──
+  const tailSh = new THREE.Shape();
+  tailSh.moveTo(-0.35, 0);
+  tailSh.lineTo( 0.35, 0);
+  tailSh.lineTo( 0.5,  1.1);
+  tailSh.lineTo(-0.5,  1.1);
+  tailSh.closePath();
+  const tailG = new THREE.ShapeGeometry(tailSh);
+  tailG.rotateX(-Math.PI / 2);
+  birdParts.tail = new THREE.Mesh(tailG, wingMat);
+  birdParts.tail.position.set(0, 0.06, 1.5);   // +Z = tail
+  birdGroup.add(birdParts.tail);
+})();
+
+// Bird faces -Z by default; scale to natural size
+birdGroup.scale.setScalar(1.0);
+birdGroup.position.set(0, 80, 0);
+scene.add(birdGroup);
+
+// Alias so rest of code still refers to `bird`
+const bird = birdGroup;
+
+// ─────────────────────────────────────────────
+// FLIGHT STATE
+// ─────────────────────────────────────────────
+const state = {
+  speed: 10,
+  yaw: 0,
+  pitch: 0,   roll: 0,
+  tPitch: 0,  tRoll: 0,
+  velY: 0,
+  flapTimer: 0,
+  flapPhase: 0,   // continuous phase counter for wing cycle
+  wingAmp: 0.07,  // current flap amplitude (lerps up/down)
+};
+
+const keys = {};
+let paused = true;
+let started = false;
+
+addEventListener('keydown', e => {
+  if (e.code === 'Space') {
+    if (!started) {
+      // First spacebar: dismiss modal, start simulation and audio
+      started = true;
+      paused  = false;
+      document.getElementById('start-modal').style.display   = 'none';
+      document.getElementById('hud').style.display           = '';
+      document.getElementById('perf-hud').style.display      = '';
+      // Only show keyboard hint on desktop
+      if (!isMobile) document.getElementById('controls-help').style.display = '';
+      initAudio();
+      e.preventDefault();
+      return;
+    }
+    // Subsequent spacebar: toggle pause
+    paused = !paused;
+    document.getElementById('pause-overlay').style.display = paused ? 'flex' : 'none';
+    setAudioPaused(paused);
+    e.preventDefault();
+    return;
+  }
+  keys[e.key.toLowerCase()] = true;
+  e.preventDefault();
+});
+addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+// ─────────────────────────────────────────────
+// MOBILE DETECTION & TOUCH CONTROLS
+// ─────────────────────────────────────────────
+const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+              || navigator.maxTouchPoints > 1
+              || window.matchMedia('(pointer: coarse)').matches;
+
+if (isMobile) {
+  // Show touch UI, hide keyboard hint
+  document.getElementById('touch-ui').style.display = 'block';
+  document.getElementById('pause-resume-hint').textContent = 'Tap ⏸ to resume';
+
+  // Swap modal prompt
+  document.getElementById('modal-space-prompt').style.display = 'none';
+  document.getElementById('modal-tap-btn').style.display = 'block';
+
+  // canvas: prevent browser scroll/pinch-zoom interference
+  document.querySelector('canvas') && (document.querySelector('canvas').style.touchAction = 'none');
+
+  // ── Helper: start game (shared by tap button + joystick first touch) ──
+  function startGame() {
+    if (started) return;
+    started = true;
+    paused  = false;
+    document.getElementById('start-modal').style.display   = 'none';
+    document.getElementById('hud').style.display           = '';
+    document.getElementById('perf-hud').style.display      = '';
+    document.getElementById('mobile-controls-hint').style.display = '';
+    initAudio();
+  }
+
+  // "TAP TO FLY" button
+  document.getElementById('modal-tap-btn').addEventListener('touchstart', e => {
+    e.preventDefault();
+    startGame();
+  }, { passive: false });
+
+  // ── Mobile pause button ──
+  const mobilePauseBtn = document.getElementById('mobile-pause-btn');
+  mobilePauseBtn.addEventListener('touchstart', e => {
+    e.preventDefault();
+    if (!started) { startGame(); return; }
+    paused = !paused;
+    mobilePauseBtn.textContent = paused ? '▶' : '⏸';
+    document.getElementById('pause-overlay').style.display = paused ? 'flex' : 'none';
+    setAudioPaused(paused);
+  }, { passive: false });
+
+  // ── Virtual Joystick ──
+  const zone  = document.getElementById('joystick-zone');
+  const knob  = document.getElementById('joystick-knob');
+  const RADIUS = 39;   // max knob travel from centre (px)
+  let joystickId = null, zoneRect = null;
+  let jx = 0, jy = 0;  // normalised -1..1 per axis
+
+  function joystickMove(cx, cy) {
+    const bx = zoneRect.left + zoneRect.width  * 0.5;
+    const by = zoneRect.top  + zoneRect.height * 0.5;
+    let dx = cx - bx, dy = cy - by;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    if (dist > RADIUS) { dx = dx/dist*RADIUS; dy = dy/dist*RADIUS; }
+    knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+    jx =  dx / RADIUS;   // left(-1) / right(+1)
+    jy = -dy / RADIUS;   // down(-1) / up(+1)
+
+    // Map to keys
+    keys['a'] = jx < -0.25;
+    keys['d'] = jx >  0.25;
+    keys['w'] = jy >  0.25;
+    keys['s'] = jy < -0.25;
+  }
+
+  function joystickReset() {
+    joystickId = null; jx = 0; jy = 0;
+    knob.style.transform = 'translate(-50%, -50%)';
+    keys['a'] = keys['d'] = keys['w'] = keys['s'] = false;
+  }
+
+  zone.addEventListener('touchstart', e => {
+    e.preventDefault();
+    if (!started) startGame();
+    const t = e.changedTouches[0];
+    joystickId = t.identifier;
+    zoneRect = zone.getBoundingClientRect();
+    joystickMove(t.clientX, t.clientY);
+  }, { passive: false });
+
+  zone.addEventListener('touchmove', e => {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      if (t.identifier === joystickId) { joystickMove(t.clientX, t.clientY); break; }
+    }
+  }, { passive: false });
+
+  zone.addEventListener('touchend',    e => { e.preventDefault(); joystickReset(); }, { passive: false });
+  zone.addEventListener('touchcancel', e => { e.preventDefault(); joystickReset(); }, { passive: false });
+
+  // ── Flap button (E) ──
+  const btnFlap = document.getElementById('btn-flap');
+  btnFlap.addEventListener('touchstart', e => {
+    e.preventDefault();
+    if (!started) startGame();
+    keys['e'] = true;
+  }, { passive: false });
+  btnFlap.addEventListener('touchend',    e => { e.preventDefault(); keys['e'] = false; }, { passive: false });
+  btnFlap.addEventListener('touchcancel', e => { e.preventDefault(); keys['e'] = false; }, { passive: false });
+
+  // ── Dive button (Q) ──
+  const btnDive = document.getElementById('btn-dive');
+  btnDive.addEventListener('touchstart', e => {
+    e.preventDefault();
+    if (!started) startGame();
+    keys['q'] = true;
+  }, { passive: false });
+  btnDive.addEventListener('touchend',    e => { e.preventDefault(); keys['q'] = false; }, { passive: false });
+  btnDive.addEventListener('touchcancel', e => { e.preventDefault(); keys['q'] = false; }, { passive: false });
+
+  // lil-gui: collapse by default on mobile (applied after GUI is created below)
+  window._mobileCollapseGui = true;
+}
+
+function updateBird(dt) {
+  const s = state;
+  let accel = 0;
+  s.tPitch = 0; s.tRoll = 0;
+
+  if (keys['w']) { accel =  20; s.tPitch = -0.22; }
+  if (keys['s']) { accel = -14; s.tPitch =  0.30; }
+  if (keys['a']) { s.yaw += 1.8 * dt; s.tRoll =  0.65; }
+  if (keys['d']) { s.yaw -= 1.8 * dt; s.tRoll = -0.65; }
+  if (keys['e'] && s.flapTimer <= 0) {
+    s.velY  += 16;
+    s.speed += 3;
+    s.flapTimer = 0.28;
+    s.flapAnim  = 1.0;
+    s.tPitch = 0.25;  // nose up while flapping to climb
+  }
+  if (keys['q']) { s.velY -= 22 * dt; s.tPitch = -0.45; s.speed += 4 * dt; } // nose down while diving
+
+  s.flapTimer -= dt;
+
+  // smooth pitch & roll
+  s.pitch = THREE.MathUtils.lerp(s.pitch, s.tPitch, 4 * dt);
+  s.roll  = THREE.MathUtils.lerp(s.roll,  s.tRoll,  5 * dt);
+
+  // ── wing flap animation ──
+  // Continuous phase counter; amplitude lerps up when flapping, down when gliding
+  const flapping = (keys['e'] && s.flapTimer > -0.1);
+  if (flapping) {
+    s.flapPhase += 14 * dt;
+    s.wingAmp = THREE.MathUtils.lerp(s.wingAmp, 0.65, 10 * dt);
+  } else {
+    s.wingAmp = THREE.MathUtils.lerp(s.wingAmp, 0.07, 2.5 * dt);
+  }
+  s.flapPhase += dt * 0.6; // slow passive tick
+
+  const fa = Math.sin(s.flapPhase) * s.wingAmp;
+  birdParts.leftWingPivot.rotation.z  = -fa - 0.07;
+  birdParts.leftOuterPivot.rotation.z = -fa * 0.45;
+  birdParts.rightWingPivot.rotation.z =  fa + 0.07;
+  birdParts.rightOuterPivot.rotation.z = fa * 0.45;
+
+  // Tail pitch reaction
+  const pitchKick = s.pitch * 0.3;
+  birdParts.tail.rotation.x = THREE.MathUtils.lerp(
+    birdParts.tail.rotation.x, -pitchKick - fa * 0.2, 5 * dt
+  );
+
+  // ── speed (drag) ──
+  s.speed += accel * dt;
+  s.speed *= Math.pow(0.30, dt);          // exponential drag
+  s.speed = THREE.MathUtils.clamp(s.speed, 4, 70);
+
+  // ── vertical physics ──
+  s.velY -= 11 * dt * params.gravityScale;  // gravity
+  const lift = THREE.MathUtils.clamp(s.speed / 14, 0, 1) * 9;
+  s.velY += lift * dt;                   // lift proportional to speed
+  s.velY *= Math.pow(0.18, dt);          // vertical drag
+  s.velY = THREE.MathUtils.clamp(s.velY, -40, 40);
+
+  // ── movement ──
+  const dx = -Math.sin(s.yaw) * s.speed * dt;
+  const dz = -Math.cos(s.yaw) * s.speed * dt;
+  const dy = s.velY * dt;
+
+  bird.position.x += dx;
+  bird.position.z += dz;
+  bird.position.y += dy;
+
+  // ground clamp
+  const gh = getHeight(bird.position.x, bird.position.z);
+  if (bird.position.y < gh + 2.5) {
+    bird.position.y = gh + 2.5;
+    if (s.velY < 0) s.velY = 0;
+  }
+
+  // ── bird orientation ──
+  // yaw drives the heading; no +PI flip — bird's -Z is its nose
+  const euler = new THREE.Euler(s.pitch, s.yaw, s.roll, 'YXZ');
+  bird.quaternion.setFromEuler(euler);
+}
+
+// ─────────────────────────────────────────────
+// CAMERA
+// ─────────────────────────────────────────────
+const camSmooth = bird.position.clone().add(new THREE.Vector3(0, 6, 18));
+
+function updateCamera(dt) {
+  const s = state;
+  // Bird's forward is -Z rotated by yaw:  fwd = (-sinY, 0, -cosY)
+  // Camera sits BEHIND the bird:  bird.pos + (+sinY, ..., +cosY) * distance
+  const sinY = Math.sin(s.yaw), cosY = Math.cos(s.yaw);
+  const ideal = bird.position.clone()
+    .add(new THREE.Vector3( sinY * 18,  6 - s.pitch * 4,  cosY * 18));
+
+  camSmooth.lerp(ideal, 1 - Math.pow(0.002, dt));
+  camera.position.copy(camSmooth);
+
+  // Look toward the bird's nose (ahead of bird in its forward direction)
+  const lookAt = bird.position.clone()
+    .add(new THREE.Vector3(-sinY * 10, 0, -cosY * 10));
+  camera.lookAt(lookAt);
+
+  const fovTarget = 65 + (s.speed - 10) * 0.4;
+  camera.fov = THREE.MathUtils.lerp(camera.fov, THREE.MathUtils.clamp(fovTarget, 55, 100), 2 * dt);
+  camera.updateProjectionMatrix();
+}
+
+// ─────────────────────────────────────────────
+// CHUNK TERRAIN SYSTEM
+// ─────────────────────────────────────────────
+const CHUNK_SIZE = 96;
+const CHUNK_VERTS = 48;   // segments per side
+
+const chunks = new Map();
+
+// shared materials (no per-chunk alloc)
+const terrainMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+const waterMat   = new THREE.MeshPhongMaterial({
+  color: 0x1866a8, transparent: true, opacity: 0.72,
+  shininess: 120, specular: 0x55aacc
+});
+const treeMat  = new THREE.MeshLambertMaterial({ color: 0x2a5e28 });
+const trunkMat = new THREE.MeshLambertMaterial({ color: 0x5a3a1a });
+const cloudMat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.7 });
+
+// shared instancing geometries
+const treeCanopyGeo = new THREE.ConeGeometry(2.2, 6, 6);
+treeCanopyGeo.translate(0, 5, 0);
+const treeTrunkGeo = new THREE.CylinderGeometry(0.3, 0.5, 3, 5);
+treeTrunkGeo.translate(0, 1.5, 0);
+const cloudGeo = (() => {
+  const g = new THREE.SphereGeometry(12, 7, 5);
+  g.scale(1.8, 0.45, 1.1);
+  return g;
+})();
+
+function seededRand(cx, cz, n) {
+  let h = (cx * 374761393 + cz * 668265263 + n * 1274126177) | 0;
+  h ^= h >>> 13; h = Math.imul(h, 1274126177); h ^= h >>> 16;
+  return ((h >>> 0) / 0xffffffff);
+}
+
+function buildChunkGeometry(cx, cz) {
+  const ox = cx * CHUNK_SIZE;
+  const oz = cz * CHUNK_SIZE;
+
+  const geo = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE, CHUNK_VERTS, CHUNK_VERTS);
+  geo.rotateX(-Math.PI / 2);
+
+  const pos    = geo.attributes.position;
+  const count  = pos.count;
+  const colArr = new Float32Array(count * 3);
+
+  const waterH = params.waterLevel * params.elevationMultiplier;
+  const snowH  = params.snowLine   * params.elevationMultiplier;
+  const sandH  = waterH + 6;
+  const rockH  = snowH  * 0.65;
+
+  for (let i = 0; i < count; i++) {
+    // pos is centred at origin after PlaneGeometry; offset to chunk world position
+    const wx = pos.getX(i) + ox + CHUNK_SIZE * 0.5;
+    const wz = pos.getZ(i) + oz + CHUNK_SIZE * 0.5;
+    const h  = getHeight(wx, wz);
+    pos.setY(i, h);
+
+    let r, g, b;
+    if      (h <= waterH)  { r=0.08; g=0.26; b=0.62; }
+    else if (h <= sandH)   { r=0.80; g=0.73; b=0.52; }
+    else if (h <= rockH)   { r=0.20; g=0.52; b=0.14; }  // grass
+    else if (h <= snowH)   { r=0.46; g=0.43; b=0.36; }  // rock
+    else                   { r=0.93; g=0.94; b=0.97; }  // snow
+
+    colArr[i*3]   = r;
+    colArr[i*3+1] = g;
+    colArr[i*3+2] = b;
+  }
+
+  geo.setAttribute('color', new THREE.BufferAttribute(colArr, 3));
+  geo.computeVertexNormals();
+  return { geo, ox, oz, waterH, snowH };
+}
+
+function createChunk(cx, cz) {
+  const key = `${cx},${cz}`;
+  if (chunks.has(key)) return;
+
+  const group = new THREE.Group();
+  // Chunk mesh is centred at (ox + half, 0, oz + half)
+  const ox = cx * CHUNK_SIZE + CHUNK_SIZE * 0.5;
+  const oz = cz * CHUNK_SIZE + CHUNK_SIZE * 0.5;
+
+  const { geo, waterH, snowH } = buildChunkGeometry(cx, cz);
+
+  const terrainMesh = new THREE.Mesh(geo, terrainMat);
+  terrainMesh.position.set(ox, 0, oz);
+  terrainMesh.frustumCulled = true;
+  group.add(terrainMesh);
+
+  // water
+  const wGeo = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE);
+  wGeo.rotateX(-Math.PI / 2);
+  const waterMesh = new THREE.Mesh(wGeo, waterMat);
+  waterMesh.position.set(ox, waterH, oz);
+  waterMesh.frustumCulled = true;
+  group.add(waterMesh);
+
+  // ── trees (two instanced meshes: canopy + trunk) ──
+  const maxTrees = params.treeCount;
+  const treePos = [];
+  for (let i = 0; i < maxTrees; i++) {
+    const tx = cx * CHUNK_SIZE + seededRand(cx, cz, i * 3    ) * CHUNK_SIZE;
+    const tz = cz * CHUNK_SIZE + seededRand(cx, cz, i * 3 + 1) * CHUNK_SIZE;
+    const th = getHeight(tx, tz);
+    if (th > waterH + 6 && th < snowH * 0.62) treePos.push({ x: tx, y: th, z: tz, s: seededRand(cx, cz, i * 3 + 2) });
+  }
+  if (treePos.length > 0) {
+    const canopyInst = new THREE.InstancedMesh(treeCanopyGeo, treeMat,  treePos.length);
+    const trunkInst  = new THREE.InstancedMesh(treeTrunkGeo,  trunkMat, treePos.length);
+    const dummy = new THREE.Object3D();
+    treePos.forEach(({ x, y, z, s }, idx) => {
+      const sc = 0.7 + s * 0.9;
+      dummy.position.set(x, y, z);
+      dummy.scale.set(sc, sc, sc);
+      dummy.rotation.y = s * Math.PI * 2;
+      dummy.updateMatrix();
+      canopyInst.setMatrixAt(idx, dummy.matrix);
+      trunkInst .setMatrixAt(idx, dummy.matrix);
+    });
+    canopyInst.frustumCulled = true;
+    trunkInst .frustumCulled = true;
+    group.add(canopyInst, trunkInst);
+  }
+
+  // ── clouds ──
+  const nClouds = params.cloudDensity;
+  if (nClouds > 0) {
+    const cloudInst = new THREE.InstancedMesh(cloudGeo, cloudMat, nClouds);
+    const dummy = new THREE.Object3D();
+    for (let i = 0; i < nClouds; i++) {
+      dummy.position.set(
+        cx * CHUNK_SIZE + seededRand(cx, cz, i + 500) * CHUNK_SIZE,
+        160 + seededRand(cx, cz, i + 600) * 60,
+        cz * CHUNK_SIZE + seededRand(cx, cz, i + 700) * CHUNK_SIZE
+      );
+      const s = 0.5 + seededRand(cx, cz, i + 800) * 1.0;
+      dummy.scale.set(s, s * 0.45, s * 0.8);
+      dummy.updateMatrix();
+      cloudInst.setMatrixAt(i, dummy.matrix);
+    }
+    cloudInst.frustumCulled = true;
+    group.add(cloudInst);
+  }
+
+  scene.add(group);
+  chunks.set(key, group);
+}
+
+function disposeChunk(key) {
+  const g = chunks.get(key);
+  if (!g) return;
+  g.traverse(o => {
+    if (o.geometry) o.geometry.dispose();
+    // Don't dispose shared materials
+  });
+  scene.remove(g);
+  chunks.delete(key);
+}
+
+function updateChunks() {
+  const bx = Math.floor(bird.position.x / CHUNK_SIZE);
+  const bz = Math.floor(bird.position.z / CHUNK_SIZE);
+  const rd = params.chunkRenderDistance;
+  for (let x = bx - rd; x <= bx + rd; x++)
+    for (let z = bz - rd; z <= bz + rd; z++)
+      createChunk(x, z);
+  for (const [key] of chunks) {
+    const [cx, cz] = key.split(',').map(Number);
+    if (Math.abs(cx - bx) > rd + 1 || Math.abs(cz - bz) > rd + 1) disposeChunk(key);
+  }
+}
+
+function rebuildChunks() {
+  for (const k of [...chunks.keys()]) disposeChunk(k);
+  updateChunks();
+}
+
+// ─────────────────────────────────────────────
+// LIGHTING – TIME OF DAY
+// ─────────────────────────────────────────────
+function updateLighting() {
+  const t = params.timeOfDay;
+  const a = t * Math.PI;
+  sun.position.set(Math.cos(a) * 400, Math.sin(a) * 350, 120);
+  const si = Math.max(0.04, Math.sin(a));
+  sun.intensity    = si * 1.6;
+  ambient.intensity = 0.3 + si * 0.45;
+  hemi.intensity    = 0.2 + si * 0.35;
+
+  let skyCol;
+  if      (t < 0.1 || t > 0.9) skyCol = new THREE.Color(0x080c18);   // night
+  else if (t < 0.25)            skyCol = new THREE.Color(0xe8703a);   // sunrise
+  else if (t > 0.75)            skyCol = new THREE.Color(0xe06030);   // sunset
+  else                          skyCol = new THREE.Color(params.fogColor);
+
+  scene.fog.color.copy(skyCol);
+  scene.background.copy(skyCol);
+}
+
+// ─────────────────────────────────────────────
+// GUI
+// ─────────────────────────────────────────────
+const gui = new GUI({ title: 'World Settings', width: 260 });
+
+const tF = gui.addFolder('⛰ Terrain');
+tF.add(params, 'noiseScale', 0.001, 0.012, 0.0005).name('Roughness').onChange(rebuildChunks);
+tF.add(params, 'elevationMultiplier', 40, 350, 5).name('Mountain Height').onChange(rebuildChunks);
+tF.add(params, 'treeCount', 0, 120, 5).name('Trees per Chunk').onChange(rebuildChunks);
+
+const bF = gui.addFolder('🌊 Biomes');
+bF.add(params, 'waterLevel', 0.05, 0.5, 0.01).name('Water Level').onChange(rebuildChunks);
+bF.add(params, 'snowLine',   0.4,  1.0, 0.01).name('Snow Line').onChange(rebuildChunks);
+
+const eF = gui.addFolder('🌤 Environment');
+eF.add(params, 'fogDensity', 0.0003, 0.007, 0.0002).name('Fog Density').onChange(() => { scene.fog.density = params.fogDensity; });
+eF.addColor(params, 'fogColor').name('Sky / Fog Color').onChange(() => { updateLighting(); });
+eF.add(params, 'cloudDensity', 0, 12, 1).name('Clouds/Chunk').onChange(rebuildChunks);
+eF.add(params, 'timeOfDay', 0, 1, 0.01).name('Time of Day').onChange(updateLighting);
+
+const pF = gui.addFolder('⚙ Performance');
+pF.add(params, 'chunkRenderDistance', 2, 10, 1).name('Render Distance');
+
+const phF = gui.addFolder('🪂 Physics');
+phF.add(params, 'gravityScale', 0.0, 3.0, 0.05).name('Gravity Scale');
+
+// Collapse GUI by default on mobile
+if (window._mobileCollapseGui) gui.close();
+
+// ─────────────────────────────────────────────
+// MAIN LOOP
+// ─────────────────────────────────────────────
+const clock = new THREE.Clock();
+let fpsFrames = 0, fpsAccum = 0, fpsDisplay = 0;
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+
+  // FPS counter (update every 0.5s)
+  fpsFrames++;
+  fpsAccum += dt;
+  if (fpsAccum >= 0.5) {
+    fpsDisplay = Math.round(fpsFrames / fpsAccum);
+    fpsFrames = 0;
+    fpsAccum  = 0;
+  }
+
+  if (!started || paused) {
+    renderer.render(scene, camera);
+    return;
+  }
+
+  updateBird(dt);
+  updateCamera(dt);
+  updateChunks();
+
+  // main HUD
+  const gh = getHeight(bird.position.x, bird.position.z);
+  const agt = Math.max(0, bird.position.y - gh).toFixed(0);
+  document.getElementById('hud').textContent =
+    `Speed: ${state.speed.toFixed(1)}  |  Alt above ground: ${agt}m  |  Height: ${bird.position.y.toFixed(0)}`;
+
+  // perf HUD
+  document.getElementById('perf-hud').innerHTML =
+    `FPS: ${fpsDisplay}<br>Chunks: ${chunks.size}`;
+
+  renderer.render(scene, camera);
+}
+
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+updateLighting();
+updateChunks();
+animate();
+</script>
+</body>
+</html>

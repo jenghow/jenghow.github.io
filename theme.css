@@ -1,0 +1,39 @@
+/* 1. The Observability Dashboard */
+[data-theme="observability"] {
+  --bg: #0F172A;
+  --surface: #18181B;
+  --accent-1: #F97316;
+  --accent-2: #06B6D4;
+  --text-1: #F8FAFC;
+  --text-2: #94A3B8;
+}
+
+/* 2. Long-Exposure Urban Night */
+[data-theme="urban-night"] {
+  --bg: #0A0F1D;
+  --surface: #131B2F;
+  --accent-1: #FFB000;
+  --accent-2: #00E5FF;
+  --text-1: #EDEDED;
+  --text-2: #7A8B99;
+}
+
+/* 3. The Command Center */
+[data-theme="command-center"] {
+  --bg: #050505;
+  --surface: #1F2326;
+  --accent-1: #E63946;
+  --accent-2: #2A9D8F;
+  --text-1: #F1FAEE;
+  --text-2: #A8B2B8;
+}
+
+/* 4. The Single-Origin */
+[data-theme="single-origin"] {
+  --bg: #1E1B18;
+  --surface: #2B2622;
+  --accent-1: #D97757;
+  --accent-2: #E0C097;
+  --text-1: #FFFFFA;
+  --text-2: #A39182;
+}

@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sticker Sheet Extractor</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: { 50: '#faf5ff', 100: '#f3e8ff', 200: '#e9d5ff', 300: '#d8b4fe', 400: '#c084fc', 500: '#a855f7', 600: '#9333ea', 700: '#7e22ce', 800: '#6b21a8', 900: '#581c87' },
+          },
+        },
+      },
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0-release.1/dist/opencv.js" async onload="window.__ocvScriptLoaded=1"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 50%, #f0fdf4 100%); min-height: 100vh; }
+    .drop-zone-active { border-color: #9333ea; background-color: #faf5ff; transform: scale(1.01); }
+    input[type='range'] { -webkit-appearance: none; appearance: none; height: 6px; background: #e5e7eb; border-radius: 3px; outline: none; }
+    input[type='range']::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #9333ea; cursor: pointer; border: 2px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+    input[type='range']::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: #9333ea; cursor: pointer; border: 2px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner { width: 20px; height: 20px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.6s linear infinite; display: inline-block; vertical-align: middle; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel" data-presets="react">
+    const { useState, useEffect, useRef, useCallback } = React;
+    const { createRoot } = ReactDOM;
+
+    // ─── Helpers ──────────────────────────────────────────────────────────
+
+    /** Load a File object into a fully decoded HTMLImageElement */
+    function loadImageElement(file) {
+      return new Promise(function (resolve, reject) {
+        if (!file.type.match(/^image\/(png|jpeg|jpg)$/i)) {
+          reject(new Error('Unsupported file type. Please upload PNG or JPG.'));
+          return;
+        }
+        var reader = new FileReader();
+        reader.onload = function () {
+          var img = new Image();
+          img.onload = function () { resolve(img); };
+          img.onerror = function () { reject(new Error('Failed to decode image')); };
+          img.src = reader.result;
+        };
+        reader.onerror = function () { reject(new Error('Failed to read file')); };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    /**
+     * Process the uploaded image with OpenCV to detect individual sticker boundaries.
+     *
+     * Pipeline (all cv.xxx calls are synchronous OpenCV.js operations):
+     *   1. Draw image onto a temp canvas — cv.imread() reads it into a cv.Mat
+     *   2. Convert RGBA -> grayscale  (cv.cvtColor + cv.COLOR_RGBA2GRAY)
+     *   3. Binary threshold via cv.threshold (value set by sensitivity slider)
+     *      using THRESH_BINARY_INV so dark sticker outlines become white (255)
+     *      on a black (0) background.
+     *   4. Dilate with a 3x3 structuring element to bridge gaps in outlines
+     *   5. cv.findContours with RETR_EXTERNAL — only outermost boundaries
+     *   6. Filter: skip contours whose area is < 0.1 % (noise) or > 95 % (sheet edge)
+     *   7. cv.boundingRect for each surviving contour
+     *   8. Scale rects back to original image dimensions if we downscaled for perf
+     */
+    function detectContours(img, sensitivity) {
+      var cv = window.cv;
+      var origW = img.naturalWidth;
+      var origH = img.naturalHeight;
+
+      // Scale down very large images for faster OpenCV processing
+      var MAX_DIM = 4000;
+      var procW = origW;
+      var procH = origH;
+      var scale = 1;
+      if (origW > MAX_DIM || origH > MAX_DIM) {
+        scale = Math.min(MAX_DIM / origW, MAX_DIM / origH);
+        procW = Math.round(origW * scale);
+        procH = Math.round(origH * scale);
+      }
+
+      // Draw image (scaled if needed) onto a temporary canvas for cv.imread
+      var tempCanvas = document.createElement('canvas');
+      tempCanvas.width = procW;
+      tempCanvas.height = procH;
+      var ctx = tempCanvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, procW, procH);
+
+      // ── OpenCV Mats (must be .delete()'d to free WASM memory) ──
+      var src = cv.imread(tempCanvas);
+      var gray = new cv.Mat();
+      var blurred = new cv.Mat();
+      var binary = new cv.Mat();
+      var closed = new cv.Mat();
+      var contours = new cv.MatVector();
+      var hierarchy = new cv.Mat();
+
+      var boxes = [];
+
+      try {
+        // Step 1: Convert RGBA -> single-channel grayscale
+        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+        // Step 2: Gaussian blur to suppress noise before thresholding
+        cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
+
+        // Step 3: Adaptive threshold — calculates a local threshold per pixel
+        // region instead of a single global value, making it much more robust
+        // against lighting variation across the sticker sheet.
+        //   sensitivity maps to the C constant (lower C = more sensitive):
+        //     sens   0 → C=22 (very strict)
+        //     sens  50 → C=12
+        //     sens 100 → C=2  (very sensitive, picks up faint outlines)
+        var blockSize = 11;
+        var C = Math.max(2, Math.min(22, 22 - Math.round(sensitivity / 5)));
+        cv.adaptiveThreshold(blurred, binary, 255,
+          cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, blockSize, C);
+
+        // Step 4: Morphological close (dilate → erode) bridges small gaps
+        // in the detected outlines so each sticker becomes one solid region.
+        var kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(5, 5));
+        cv.morphologyEx(binary, closed, cv.MORPH_CLOSE, kernel);
+        kernel.delete();
+
+        // Step 5: Find external contours — RETR_EXTERNAL returns only the
+        // outermost boundaries, ignoring interior holes.
+        cv.findContours(closed, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+        // Step 6: Filter contours and collect bounding boxes
+        var totalArea = procW * procH;
+        var minArea = totalArea * 0.002;  // 0.2 % of image
+        var maxArea = totalArea * 0.92;   // 92 % of image
+        var invScale = 1 / scale;
+
+        for (var i = 0; i < contours.size(); i++) {
+          var contour = contours.get(i);
+          var area = cv.contourArea(contour);
+
+          // Skip noise (too small) and full-sheet boundary (too large)
+          if (area < minArea || area > maxArea) continue;
+
+          var rect = cv.boundingRect(contour);
+
+          // Skip contours that wrap nearly the whole image (likely the sheet edge)
+          if (rect.x <= 2 && rect.y <= 2 &&
+              rect.x + rect.width >= procW - 2 &&
+              rect.y + rect.height >= procH - 2) continue;
+
+          // Scale box coordinates back to original image dimensions
+          boxes.push({
+            x: Math.round(rect.x * invScale),
+            y: Math.round(rect.y * invScale),
+            w: Math.round(rect.width * invScale),
+            h: Math.round(rect.height * invScale),
+          });
+        }
+      } finally {
+        // Free all OpenCV WASM-allocated memory
+        src.delete();
+        gray.delete();
+        blurred.delete();
+        binary.delete();
+        closed.delete();
+        contours.delete();
+        hierarchy.delete();
+      }
+
+      return boxes;
+    }
+
+    /**
+     * Loop through detected bounding boxes, crop each region from the original
+     * image (with user-defined padding), convert to PNG blobs, package into a
+     * ZIP archive, and trigger an automatic browser download.
+     */
+    async function extractAndDownload(img, boxes, padding) {
+      var zip = new JSZip();
+
+      for (var i = 0; i < boxes.length; i++) {
+        var b = boxes[i];
+
+        // Clamp padded coordinates to image boundaries
+        var x = Math.max(0, b.x - padding);
+        var y = Math.max(0, b.y - padding);
+        var w = Math.min(img.naturalWidth - x, b.w + padding * 2);
+        var h = Math.min(img.naturalHeight - y, b.h + padding * 2);
+
+        var canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        var cctx = canvas.getContext('2d');
+        cctx.drawImage(img, x, y, w, h, 0, 0, w, h);
+
+        var blob = await new Promise(function (resolve) {
+          canvas.toBlob(function (b) { resolve(b); }, 'image/png');
+        });
+
+        zip.file('sticker_' + (i + 1) + '.png', blob);
+      }
+
+      var content = await zip.generateAsync({ type: 'blob' });
+      var url = URL.createObjectURL(content);
+      var anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = 'stickers.zip';
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+    }
+
+    // ─── Components ──────────────────────────────────────────────────────
+
+    function DragDropZone(props) {
+      var onImage = props.onImage;
+      var draggingState = useState(false);
+      var dragging = draggingState[0];
+      var setDragging = draggingState[1];
+      var errorState = useState(null);
+      var error = errorState[0];
+      var setError = errorState[1];
+      var inputRef = useRef(null);
+
+      var handleFile = useCallback(async function (file) {
+        setError(null);
+        try {
+          var img = await loadImageElement(file);
+          onImage(img);
+        } catch (err) {
+          setError(err.message || 'Failed to load image');
+        }
+      }, [onImage]);
+
+      var onDrop = useCallback(function (e) {
+        e.preventDefault();
+        setDragging(false);
+        var file = e.dataTransfer.files ? e.dataTransfer.files[0] : null;
+        if (file) handleFile(file);
+      }, [handleFile]);
+
+      var onChange = useCallback(function (e) {
+        var file = e.target.files ? e.target.files[0] : null;
+        if (file) handleFile(file);
+      }, [handleFile]);
+
+      var containerClass = 'relative border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all duration-150 ' +
+        (dragging
+          ? 'border-primary-500 bg-primary-50 drop-zone-active'
+          : 'border-gray-300 hover:border-primary-400 hover:bg-gray-50');
+
+      return React.createElement('div', null,
+        React.createElement('div', {
+          className: containerClass,
+          onDragOver: function (e) { e.preventDefault(); setDragging(true); },
+          onDragLeave: function () { setDragging(false); },
+          onDrop: onDrop,
+          onClick: function () { if (inputRef.current) inputRef.current.click(); },
+        },
+          React.createElement('input', {
+            ref: inputRef,
+            type: 'file',
+            accept: 'image/png,image/jpeg,image/jpg',
+            className: 'hidden',
+            onChange: onChange,
+          }),
+          React.createElement('div', { className: 'text-4xl mb-3 text-gray-400 select-none' },
+            dragging ? '\u2B07' : '\uD83D\uDCC4'
+          ),
+          React.createElement('p', { className: 'text-gray-600 font-medium select-none' },
+            dragging ? 'Drop your sticker sheet here' : 'Drag & drop a sticker sheet, or click to browse'
+          ),
+          React.createElement('p', { className: 'text-sm text-gray-400 mt-1 select-none' }, 'PNG or JPG')
+        ),
+        error ? React.createElement('p', { className: 'mt-2 text-sm text-red-600 text-center' }, error) : null
+      );
+    }
+
+    function PreviewCanvas(props) {
+      var image = props.image;
+      var boxes = props.boxes;
+      var padding = props.padding;
+      var onBoxesChange = props.onBoxesChange;
+      var canvasRef = useRef(null);
+      var containerRef = useRef(null);
+      var dims = useRef({ dw: 0, dh: 0, sc: 1 });
+      var interaction = useRef({ mode: 'idle' }); // { mode, boxIndex, handle, startX, startY, startBox, scale }
+      var drawingState = useState(null);
+      var drawingBox = drawingState[0];
+      var setDrawingBox = drawingState[1];
+      var selectedState = useState(-1);
+      var selectedIndex = selectedState[0];
+      var setSelectedIndex = selectedState[1];
+      var HS = 7; // handle size in canvas px
+
+      // ── Draw everything (image + boxes + handles) ────────────────────
+      useEffect(function () {
+        var canvas = canvasRef.current;
+        if (!canvas || !image) return;
+        var maxW = containerRef.current ? containerRef.current.clientWidth : 600;
+        var maxH = 500;
+        var iw = image.naturalWidth, ih = image.naturalHeight;
+        var sc = Math.min(maxW / iw, maxH / ih, 1);
+        var dw = Math.round(iw * sc), dh = Math.round(ih * sc);
+        dims.current = { dw: dw, dh: dh, sc: sc };
+
+        canvas.width = dw;
+        canvas.height = dh;
+        canvas.style.width = dw + 'px';
+        canvas.style.height = dh + 'px';
+
+        var ctx = canvas.getContext('2d');
+        ctx.drawImage(image, 0, 0, dw, dh);
+
+        // Draw all boxes — and the drawing preview if active
+        var all = drawingBox ? boxes.concat([drawingBox]) : boxes;
+        for (var i = 0; i < all.length; i++) {
+          var b = all[i];
+          var isNew = drawingBox && i === all.length - 1;
+
+          // --- padded region (what is cropped) ---
+          var px = Math.max(0, b.x - padding) * sc;
+          var py = Math.max(0, b.y - padding) * sc;
+          var pw = Math.min(iw - Math.max(0, b.x - padding), b.w + padding * 2) * sc;
+          var ph = Math.min(ih - Math.max(0, b.y - padding), b.h + padding * 2) * sc;
+
+          ctx.fillStyle = isNew ? 'rgba(59,130,246,0.10)' : 'rgba(34,197,94,0.08)';
+          ctx.fillRect(px, py, pw, ph);
+
+          ctx.strokeStyle = isNew ? '#3b82f6' : '#16a34a';
+          ctx.lineWidth = Math.max(2, 2.5 * sc);
+          ctx.setLineDash(isNew ? [6, 4] : []);
+          ctx.strokeRect(px, py, pw, ph);
+          ctx.setLineDash([]);
+
+          if (!isNew) {
+            // --- original detected box (dashed inner reference) ---
+            ctx.strokeStyle = 'rgba(34,197,94,0.35)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 4]);
+            ctx.strokeRect(b.x * sc, b.y * sc, b.w * sc, b.h * sc);
+            ctx.setLineDash([]);
+
+            // --- resize handles (8 per box: 4 corners + 4 midpoints) ---
+            drawHandles(ctx, b, sc);
+          }
+        }
+
+        // selected box highlight
+        if (selectedIndex >= 0 && selectedIndex < boxes.length) {
+          var sel = boxes[selectedIndex];
+          ctx.strokeStyle = '#3b82f6';
+          ctx.lineWidth = Math.max(3, 3 * sc);
+          ctx.setLineDash([]);
+          ctx.strokeRect(sel.x * sc, sel.y * sc, sel.w * sc, sel.h * sc);
+        }
+
+        // label
+        if (boxes.length > 0) {
+          ctx.fillStyle = '#16a34a';
+          ctx.font = 'bold 13px sans-serif';
+          ctx.fillText('Boxes: ' + boxes.length + '  Pad: ' + padding + 'px', 8, 18);
+        }
+
+        // hint
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.font = '11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Click empty area + drag = new box  |  Drag on box = move  |  Drag handles = resize', dw / 2, dh - 6);
+        ctx.textAlign = 'left';
+      });
+
+      // ── helpers ──────────────────────────────────────────────────────
+      function drawHandles(ctx, box, sc) {
+        var cx = box.x * sc, cy = box.y * sc, cw = box.w * sc, ch = box.h * sc;
+        var h = HS, hh = h / 2;
+        var pts = [
+          [cx, cy], [cx + cw / 2, cy], [cx + cw, cy],
+          [cx + cw, cy + ch / 2], [cx + cw, cy + ch],
+          [cx + cw / 2, cy + ch], [cx, cy + ch], [cx, cy + ch / 2],
+        ];
+        ctx.fillStyle = '#16a34a';
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1.5;
+        for (var i = 0; i < pts.length; i++) {
+          ctx.fillRect(pts[i][0] - hh, pts[i][1] - hh, h, h);
+          ctx.strokeRect(pts[i][0] - hh, pts[i][1] - hh, h, h);
+        }
+      }
+
+      function getHandle(cx, cy, box, sc) {
+        var bx = box.x * sc, by = box.y * sc, bw = box.w * sc, bh = box.h * sc;
+        var mx = bx + bw / 2, my = by + bh / 2;
+        var t = 9;
+        var map = {
+          tl: [bx, by], tm: [mx, by], tr: [bx + bw, by],
+          rm: [bx + bw, my], br: [bx + bw, by + bh],
+          bm: [mx, by + bh], bl: [bx, by + bh], lm: [bx, my],
+        };
+        for (var k in map) {
+          if (Math.abs(cx - map[k][0]) <= t && Math.abs(cy - map[k][1]) <= t) return k;
+        }
+        return null;
+      }
+
+      function setCursor(cx, cy, sc) {
+        var el = canvasRef.current;
+        if (!el) return;
+        for (var i = 0; i < boxes.length; i++) {
+          var h = getHandle(cx, cy, boxes[i], sc);
+          if (!h) continue;
+          if (h === 'tl' || h === 'br') { el.style.cursor = 'nwse-resize'; return; }
+          if (h === 'tr' || h === 'bl') { el.style.cursor = 'nesw-resize'; return; }
+          if (h === 'tm' || h === 'bm') { el.style.cursor = 'ns-resize'; return; }
+          if (h === 'lm' || h === 'rm') { el.style.cursor = 'ew-resize'; return; }
+        }
+        for (var i = 0; i < boxes.length; i++) {
+          var b = boxes[i];
+          var bx = b.x * sc, by = b.y * sc, bw = b.w * sc, bh = b.h * sc;
+          if (cx >= bx - 4 && cx <= bx + bw + 4 && cy >= by - 4 && cy <= by + bh + 4) {
+            el.style.cursor = 'move'; return;
+          }
+        }
+        el.style.cursor = 'crosshair';
+      }
+
+      // ── mouse events ────────────────────────────────────────────────
+      function onMouseDown(e) {
+        var canvas = canvasRef.current;
+        if (!canvas) return;
+        var r = canvas.getBoundingClientRect();
+        var cx = e.clientX - r.left, cy = e.clientY - r.top;
+        var sc = dims.current.sc;
+
+        // 1) Try resize handle (active only on existing boxes)
+        for (var i = boxes.length - 1; i >= 0; i--) {
+          var h = getHandle(cx, cy, boxes[i], sc);
+          if (h) {
+            interaction.current = {
+              mode: 'resize', boxIndex: i, handle: h,
+              startX: cx, startY: cy,
+              startBox: { x: boxes[i].x, y: boxes[i].y, w: boxes[i].w, h: boxes[i].h },
+            };
+            return;
+          }
+        }
+
+        // 2) Try drag (inside a box)
+        for (var i = boxes.length - 1; i >= 0; i--) {
+          var b = boxes[i];
+          if (cx >= b.x * sc - 4 && cx <= (b.x + b.w) * sc + 4 &&
+              cy >= b.y * sc - 4 && cy <= (b.y + b.h) * sc + 4) {
+            setSelectedIndex(i);
+            interaction.current = {
+              mode: 'drag', boxIndex: i, handle: '',
+              startX: cx, startY: cy,
+              startBox: { x: b.x, y: b.y, w: b.w, h: b.h },
+            };
+            return;
+          }
+        }
+
+        // 3) Draw new box
+        setSelectedIndex(-1);
+        interaction.current = { mode: 'draw', boxIndex: -1, handle: '', startX: cx, startY: cy };
+        setDrawingBox({ x: cx / sc, y: cy / sc, w: 0, h: 0 });
+      }
+
+      function onMouseMove(e) {
+        var canvas = canvasRef.current;
+        if (!canvas) return;
+        var r = canvas.getBoundingClientRect();
+        var cx = e.clientX - r.left, cy = e.clientY - r.top;
+        var sc = dims.current.sc;
+        var I = interaction.current;
+
+        if (I.mode === 'draw') {
+          var x1 = I.startX / sc, y1 = I.startY / sc, x2 = cx / sc, y2 = cy / sc;
+          setDrawingBox({
+            x: Math.min(x1, x2), y: Math.min(y1, y2),
+            w: Math.abs(x2 - x1), h: Math.abs(y2 - y1),
+          });
+        } else if (I.mode === 'drag') {
+          var dx = (cx - I.startX) / sc, dy = (cy - I.startY) / sc;
+          var sb = I.startBox;
+          var nb = boxes.slice();
+          nb[I.boxIndex] = {
+            x: Math.max(0, sb.x + dx),
+            y: Math.max(0, sb.y + dy),
+            w: sb.w, h: sb.h,
+          };
+          onBoxesChange(nb);
+        } else if (I.mode === 'resize') {
+          var dx = (cx - I.startX) / sc, dy = (cy - I.startY) / sc;
+          var sb = I.startBox, h = I.handle;
+          var nb = { x: sb.x, y: sb.y, w: sb.w, h: sb.h };
+
+          if (h.indexOf('l') >= 0) { nb.x = sb.x + dx; nb.w = sb.w - dx; }
+          if (h.indexOf('r') >= 0) { nb.w = sb.w + dx; }
+          if (h.indexOf('t') >= 0) { nb.y = sb.y + dy; nb.h = sb.h - dy; }
+          if (h.indexOf('b') >= 0) { nb.h = sb.h + dy; }
+
+          var MIN = 20;
+          if (nb.w < MIN) { nb.w = MIN; if (h.indexOf('l') >= 0) nb.x = sb.x + sb.w - MIN; }
+          if (nb.h < MIN) { nb.h = MIN; if (h.indexOf('t') >= 0) nb.y = sb.y + sb.h - MIN; }
+
+          var arr = boxes.slice();
+          arr[I.boxIndex] = nb;
+          onBoxesChange(arr);
+        } else {
+          setCursor(cx, cy, sc);
+        }
+      }
+
+      function onMouseUp() {
+        var I = interaction.current;
+        if (I.mode === 'draw' && drawingBox && drawingBox.w > 10 && drawingBox.h > 10) {
+          onBoxesChange(boxes.concat([{
+            x: Math.round(drawingBox.x), y: Math.round(drawingBox.y),
+            w: Math.round(drawingBox.w), h: Math.round(drawingBox.h),
+          }]));
+          setSelectedIndex(boxes.length);
+        }
+        setDrawingBox(null);
+        interaction.current = { mode: 'idle' };
+      }
+
+      function onMouseLeave() {
+        interaction.current = { mode: 'idle' };
+        setDrawingBox(null);
+        if (canvasRef.current) canvasRef.current.style.cursor = 'crosshair';
+      }
+
+      function onKeyDown(e) {
+        if (selectedIndex >= 0 && selectedIndex < boxes.length && (e.key === 'Delete' || e.key === 'Backspace')) {
+          e.preventDefault();
+          var next = boxes.slice();
+          next.splice(selectedIndex, 1);
+          onBoxesChange(next);
+          setSelectedIndex(-1);
+        }
+      }
+
+      if (!image) return null;
+
+      return React.createElement('div', { ref: containerRef, className: 'flex justify-center' },
+        React.createElement('canvas', {
+          ref: canvasRef,
+          className: 'border border-gray-200 rounded-lg shadow-sm max-w-full outline-none',
+          tabIndex: 0,
+          onMouseDown: onMouseDown,
+          onMouseMove: onMouseMove,
+          onMouseUp: onMouseUp,
+          onMouseLeave: onMouseLeave,
+          onKeyDown: onKeyDown,
+        })
+      );
+    }
+
+    function SettingsPanel(props) {
+      var sensitivity = props.sensitivity;
+      var padding = props.padding;
+      var onSensitivityChange = props.onSensitivityChange;
+      var onPaddingChange = props.onPaddingChange;
+      var stickerCount = props.stickerCount;
+      var isDetecting = props.isDetecting;
+
+      return React.createElement('div', { className: 'space-y-5' },
+        React.createElement('div', null,
+          React.createElement('div', { className: 'flex justify-between items-center mb-1' },
+            React.createElement('label', { className: 'text-sm font-medium text-gray-700' }, 'Detection Sensitivity'),
+            React.createElement('span', { className: 'text-xs font-mono text-gray-500 bg-gray-100 px-2 py-0.5 rounded' }, sensitivity)
+          ),
+          React.createElement('input', {
+            type: 'range', min: '0', max: '100', value: sensitivity,
+            onChange: function (e) { onSensitivityChange(Number(e.target.value)); },
+            className: 'w-full',
+          }),
+          React.createElement('div', { className: 'flex justify-between text-xs text-gray-400 mt-0.5' },
+            React.createElement('span', null, 'Less'),
+            React.createElement('span', null, 'More')
+          )
+        ),
+        React.createElement('div', null,
+          React.createElement('div', { className: 'flex justify-between items-center mb-1' },
+            React.createElement('label', { className: 'text-sm font-medium text-gray-700' }, 'Padding (px)'),
+            React.createElement('span', { className: 'text-xs font-mono text-gray-500 bg-gray-100 px-2 py-0.5 rounded' }, padding + 'px')
+          ),
+          React.createElement('input', {
+            type: 'range', min: '0', max: '100', value: padding,
+            onChange: function (e) { onPaddingChange(Number(e.target.value)); },
+            className: 'w-full',
+          })
+        ),
+        React.createElement('div', { className: 'text-sm' },
+          isDetecting
+            ? React.createElement('span', { className: 'text-primary-600 flex items-center gap-2' },
+                React.createElement('span', { className: 'spinner !border-primary-300 !border-t-primary-600' }),
+                'Analysing sheet...'
+              )
+            : stickerCount > 0
+              ? React.createElement('span', { className: 'text-green-700 font-medium' },
+                  '\u2705 ' + stickerCount + ' sticker' + (stickerCount !== 1 ? 's' : '') + ' detected'
+                )
+              : React.createElement('span', { className: 'text-amber-600' },
+                  '\u26A0\uFE0F No stickers detected \u2014 try adjusting sensitivity'
+                )
+        )
+      );
+    }
+
+    function ExtractButton(props) {
+      var onClick = props.onClick;
+      var disabled = props.disabled;
+      var extracting = props.extracting;
+      var count = props.count;
+
+      var btnClass = 'w-full py-3.5 px-6 rounded-xl font-semibold text-white text-lg transition-all duration-150 flex items-center justify-center gap-2 ' +
+        (disabled || extracting
+          ? 'bg-gray-300 cursor-not-allowed'
+          : 'bg-primary-600 hover:bg-primary-700 active:bg-primary-800 shadow-md hover:shadow-lg');
+
+      return React.createElement('button', {
+        onClick: onClick,
+        disabled: disabled || extracting,
+        className: btnClass,
+      },
+        extracting
+          ? [React.createElement('span', { key: 'spinner', className: 'spinner' }), ' Extracting...']
+          : '\u2B07 Extract & Download ZIP' + (count > 0 ? ' (' + count + ')' : '')
+      );
+    }
+
+    // ─── App ─────────────────────────────────────────────────────────────
+
+    function App() {
+      var opencvReadyState = useState(false);
+      var opencvReady = opencvReadyState[0];
+      var setOpencvReady = opencvReadyState[1];
+
+      var imageState = useState(null);
+      var image = imageState[0];
+      var setImage = imageState[1];
+
+      var sensitivityState = useState(50);
+      var sensitivity = sensitivityState[0];
+      var setSensitivity = sensitivityState[1];
+
+      var paddingState = useState(5);
+      var padding = paddingState[0];
+      var setPadding = paddingState[1];
+
+      var boxesState = useState([]);
+      var boxes = boxesState[0];
+      var setBoxes = boxesState[1];
+
+      var detectingState = useState(false);
+      var isDetecting = detectingState[0];
+      var setIsDetecting = detectingState[1];
+
+      var extractingState = useState(false);
+      var isExtracting = extractingState[0];
+      var setIsExtracting = extractingState[1];
+
+      var processingRef = useRef(false);
+
+      // Wait for OpenCV.js to load and the Emscripten runtime to initialize.
+      // We poll for cv.Mat — once it exists as a constructor, OpenCV is fully ready.
+      // This is more reliable than onRuntimeInitialized, which can vary by build.
+      useEffect(function () {
+        var cv = window.cv;
+        if (cv && typeof cv.Mat === 'function') { setOpencvReady(true); return; }
+
+        var poll = setInterval(function () {
+          var c = window.cv;
+          if (c && typeof c.Mat === 'function') {
+            clearInterval(poll);
+            setOpencvReady(true);
+          }
+        }, 150);
+        return function () { clearInterval(poll); };
+      }, []);
+
+      // Re-run contour detection whenever image or sensitivity changes
+      useEffect(function () {
+        if (!image || !opencvReady) return;
+        processingRef.current = true;
+        setIsDetecting(true);
+        var id = setTimeout(function () {
+          try {
+            var detected = detectContours(image, sensitivity);
+            if (processingRef.current) setBoxes(detected);
+          } catch (_) {
+            if (processingRef.current) setBoxes([]);
+          }
+          if (processingRef.current) setIsDetecting(false);
+        }, 250);
+        return function () { clearTimeout(id); processingRef.current = false; };
+      }, [image, sensitivity, opencvReady]);
+
+      var handleBoxesChange = useCallback(function (newBoxes) {
+        setBoxes(newBoxes);
+      }, []);
+
+      var handleImage = useCallback(function (img) {
+        setImage(img);
+        setBoxes([]);
+      }, []);
+
+      var handleExtract = useCallback(async function () {
+        if (!image || boxes.length === 0 || isExtracting) return;
+        setIsExtracting(true);
+        try {
+          await extractAndDownload(image, boxes, padding);
+        } catch (err) {
+          console.error('Extraction failed:', err);
+        }
+        setIsExtracting(false);
+      }, [image, boxes, padding, isExtracting]);
+
+      return React.createElement('div', { className: 'min-h-screen py-8 px-4' },
+        React.createElement('div', { className: 'max-w-2xl mx-auto' },
+
+          // Header
+          React.createElement('div', { className: 'text-center mb-8' },
+            React.createElement('h1', { className: 'text-3xl sm:text-4xl font-extrabold text-gray-800 tracking-tight' },
+              '\uD83C\uDFF7\uFE0F Sticker Sheet Extractor'
+            ),
+            React.createElement('p', { className: 'text-gray-500 mt-1' },
+              'Upload a sticker sheet \u2014 extract individual stickers as PNGs'
+            )
+          ),
+
+          !opencvReady
+            ? React.createElement('div', { className: 'bg-white rounded-2xl shadow-sm border border-gray-200 p-12 text-center' },
+                React.createElement('div', { className: 'spinner mx-auto !w-10 !h-10 !border-primary-300 !border-t-primary-600' }),
+                React.createElement('p', { className: 'mt-4 text-gray-600 font-medium' }, 'Loading OpenCV.js (about 10 MB)\u2026'),
+                React.createElement('p', { className: 'text-sm text-gray-400 mt-1' }, 'This only happens once')
+              )
+            : React.createElement('div', { className: 'space-y-6' },
+
+                // Upload
+                React.createElement('div', { className: 'bg-white rounded-2xl shadow-sm border border-gray-200 p-6' },
+                  React.createElement(DragDropZone, { onImage: handleImage })
+                ),
+
+                // Preview
+                image ? React.createElement('div', { className: 'bg-white rounded-2xl shadow-sm border border-gray-200 p-4' },
+                  React.createElement(PreviewCanvas, { image: image, boxes: boxes, padding: padding, onBoxesChange: handleBoxesChange })
+                ) : null,
+
+                // Settings + Button
+                image ? React.createElement('div', { className: 'bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-6' },
+                  React.createElement(SettingsPanel, {
+                    sensitivity: sensitivity,
+                    padding: padding,
+                    onSensitivityChange: setSensitivity,
+                    onPaddingChange: setPadding,
+                    stickerCount: boxes.length,
+                    isDetecting: isDetecting,
+                  }),
+                  React.createElement('hr', { className: 'border-gray-200' }),
+                  React.createElement(ExtractButton, {
+                    onClick: handleExtract,
+                    disabled: !image || boxes.length === 0,
+                    extracting: isExtracting,
+                    count: boxes.length,
+                  })
+                ) : null
+              )
+        )
+      );
+    }
+
+    // ─── Mount ─────────────────────────────────────────────────────────
+    var root = createRoot(document.getElementById('root'));
+    root.render(React.createElement(App));
+  </script>
+</body>
+</html>

@@ -1,20 +1,124 @@
-<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
-<html>
+<!DOCTYPE html>
+<html lang="en" data-theme="observability">
 <head>
-	<meta http-equiv="content-type" content="text/html; charset=utf-8"/>
-	<title></title>
-	<meta name="generator" content="LibreOffice 7.2.2.2 (Linux)"/>
-	<meta name="created" content="2021-11-26T22:09:05.058161568"/>
-	<meta name="changed" content="2021-11-26T22:09:58.810461097"/>
-	<style type="text/css">
-		@page { size: 8.27in 11.69in; margin: 0.79in }
-		p { line-height: 115%; margin-bottom: 0.1in; background: transparent }
-		a:link { color: #000080; so-language: zxx; text-decoration: underline }
-		a:visited { color: #800000; so-language: zxx; text-decoration: underline }
-	</style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>JengHow — Interactive Web Experiences</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="theme.css" />
+<style>
+  body { background: var(--bg); color: var(--text-1); transition: background 0.35s, color 0.35s; }
+  .bg-surface { background: var(--surface); transition: background 0.35s; }
+  .text-secondary { color: var(--text-2); transition: color 0.35s; }
+  .accent { color: var(--accent-1); }
+  .accent-border { border-color: var(--accent-1); }
+  .accent-bg { background: var(--accent-1); }
+  .accent-hover-bg:hover { background: var(--accent-1); }
+  .card-hover:hover { border-color: var(--accent-2); }
+  .theme-select { background: var(--surface); color: var(--text-1); border-color: var(--text-2); }
+  .theme-select option { background: var(--surface); color: var(--text-1); }
+  a { color: var(--accent-2); transition: color 0.2s; }
+  a:hover { color: var(--accent-1); }
+  hr { border-color: var(--text-2); opacity: 0.2; }
+  *, *::before, *::after { transition: background-color 0.35s, color 0.35s, border-color 0.35s; }
+</style>
 </head>
-<body lang="en-SG" link="#000080" vlink="#800000" dir="ltr"><p style="line-height: 100%; margin-bottom: 0in">
-<font size="5" style="font-size: 18pt">This is a main page – Hello World!</font></p>
-<a href="bunny.html">Go to see my bunny!</a>
+<body class="min-h-screen flex flex-col">
+
+  <!-- ─── Header ─── -->
+  <header class="w-full border-b" style="border-color: var(--text-2); border-opacity: 0.15;">
+    <div class="max-w-5xl mx-auto px-6 py-5 flex items-center justify-between">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight accent">JengHow</h1>
+        <p class="text-sm text-secondary mt-0.5">jenghow.tan@gmail.com</p>
+      </div>
+      <div>
+        <div class="flex items-center gap-3">
+          <label for="theme-switcher" class="text-xs text-secondary uppercase tracking-widest">Theme</label>
+          <select id="theme-switcher" class="theme-select text-sm border rounded-md px-3 py-1.5 outline-none cursor-pointer">
+            <option value="observability">Observability</option>
+            <option value="urban-night">Urban Night</option>
+            <option value="command-center">Command Center</option>
+            <option value="single-origin">Single Origin</option>
+          </select>
+        </div>
+        <p class="text-[11px] text-secondary/60 mt-1">⬆️ switch theme to meet your like</p>
+      </div>
+    </div>
+  </header>
+
+  <!-- ─── Hero ─── -->
+  <main class="flex-1 max-w-5xl mx-auto px-6 pt-20 pb-16 w-full">
+    <section class="mb-20">
+      <h2 class="text-4xl sm:text-5xl font-extrabold leading-tight mb-5">
+        I build interactive<br />
+        <span class="accent">web experiences</span>
+      </h2>
+      <p class="text-lg text-secondary max-w-2xl leading-relaxed">
+        Games, tools, and visualizations — crafted with modern JavaScript, Three.js, and
+        AI-assisted development. Every project is an exploration of what the browser can do.
+      </p>
+    </section>
+
+    <!-- ─── Projects ─── -->
+    <section>
+      <h3 class="text-xs uppercase tracking-[0.2em] text-secondary mb-8 font-semibold">Projects</h3>
+      <div class="grid md:grid-cols-3 gap-6">
+
+        <!-- Flying Bird -->
+        <a href="flying-bird/" class="block bg-surface rounded-xl border border-transparent card-hover p-6 group">
+          <div class="text-3xl mb-4">🐦</div>
+          <h4 class="text-lg font-bold mb-2">Flying Bird</h4>
+          <p class="text-sm text-secondary leading-relaxed mb-4">
+            3D bird flight simulator with procedurally generated terrain, biomes, and dynamic day-night cycles.
+          </p>
+          <span class="text-sm font-semibold accent group-hover:underline">Launch &rarr;</span>
+        </a>
+
+        <!-- Planet Guardian -->
+        <a href="planet-hero/" class="block bg-surface rounded-xl border border-transparent card-hover p-6 group">
+          <div class="text-3xl mb-4">🌍</div>
+          <h4 class="text-lg font-bold mb-2">Planet Guardian</h4>
+          <p class="text-sm text-secondary leading-relaxed mb-4">
+            Action game — defend a living planet from waves of monsters with dynamic weather and day cycles.
+          </p>
+          <span class="text-sm font-semibold accent group-hover:underline">Launch &rarr;</span>
+        </a>
+
+        <!-- Sticker Maker -->
+        <a href="sticker-maker/" class="block bg-surface rounded-xl border border-transparent card-hover p-6 group">
+          <div class="text-3xl mb-4">🏷️</div>
+          <h4 class="text-lg font-bold mb-2">Sticker Maker</h4>
+          <p class="text-sm text-secondary leading-relaxed mb-4">
+            Upload sticker sheets and auto-extract individual stickers using OpenCV contour detection.
+          </p>
+          <span class="text-sm font-semibold accent group-hover:underline">Launch &rarr;</span>
+        </a>
+
+      </div>
+    </section>
+  </main>
+
+  <!-- ─── Footer ─── -->
+  <footer class="w-full border-t py-6" style="border-color: var(--text-2); border-opacity: 0.15;">
+    <div class="max-w-5xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-2 text-sm text-secondary">
+      <span>&copy; 2026 JengHow</span>
+      <a href="mailto:jenghow.tan@gmail.com">jenghow.tan@gmail.com</a>
+    </div>
+  </footer>
+
+  <script>
+    const switcher = document.getElementById('theme-switcher');
+    const themes = ['observability', 'urban-night', 'command-center', 'single-origin'];
+    const saved = localStorage.getItem('theme') || themes[Math.floor(Math.random() * themes.length)];
+    document.documentElement.setAttribute('data-theme', saved);
+    switcher.value = saved;
+    switcher.addEventListener('change', function () {
+      const theme = this.value;
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem('theme', theme);
+    });
+  </script>
+
 </body>
 </html>
