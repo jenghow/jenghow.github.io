@@ -184,6 +184,7 @@ function init() {
     // Headlight on at evening, night, or during foggy/snowy weather
     const headlightOn = phase >= 2 || wA === 2 || wA === 3 || wB === 2 || wB === 3;
     train.setHeadlight(headlightOn);
+    train.setWindowLights(phase >= 2 || wA === 2 || wB === 2);
 
     // Rain/snow visibility (during stable phase or fading in/out)
     const isRain = (wA === 1 && (segT < WEATHER_SEC || blend < 0.5)) ||

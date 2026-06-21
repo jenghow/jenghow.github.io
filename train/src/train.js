@@ -8,6 +8,10 @@ export class Train {
     this.distance = 0;
     this.speed = 0;
     this.headlight = null;
+    this._windowMat = new THREE.MeshStandardMaterial({
+      color: 0x4488aa, emissive: 0xffaa44, emissiveIntensity: 0,
+      transparent: true, opacity: 0.35, roughness: 0.1, metalness: 0.2,
+    });
 
     this._build();
   }
@@ -85,6 +89,15 @@ export class Train {
     body.castShadow = true;
     g.add(body);
 
+    const winGeo = new THREE.BoxGeometry(0.04, 0.5, 0.5);
+    for (const side of [-1, 1]) {
+      for (const zw of [-1.5, -0.5, 0.5, 1.5]) {
+        const w = new THREE.Mesh(winGeo, this._windowMat);
+        w.position.set(side * 1.11, 1.35, zw);
+        g.add(w);
+      }
+    }
+
     const roof = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.12, 4.8), roofMat);
     roof.position.y = 2.0;
     g.add(roof);
@@ -128,6 +141,10 @@ export class Train {
     if (this.headlight) {
       this.headlight.intensity = on ? 2.5 : 0;
     }
+  }
+
+  setWindowLights(on) {
+    this._windowMat.emissiveIntensity = on ? 0.9 : 0;
   }
 
   update(dt) {
